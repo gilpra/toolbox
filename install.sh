@@ -45,3 +45,13 @@ mount -o noatime,compress=zstd:3,subvol=@log               "$PATH_LINUX" /mnt/va
 mount -o noatime,compress=zstd:3,subvol=@cache             "$PATH_LINUX" /mnt/var/cache
 mount -o noatime,compress=zstd:3,subvol=@tmp               "$PATH_LINUX" /mnt/tmp
 mount "$PATH_BOOT" /mnt/boot/efi
+
+# === BASE INSTALL ===
+pacstrap -K /mnt base base-devel \
+  linux-zen linux-zen-headers \
+  linux-firmware btrfs-progs \
+  sudo git networkmanager \
+  pipewire pipewire-pulse pipewire-jack pipewire-alsa wireplumber \
+  grub efibootmgr
+
+genfstab -U /mnt >> /mnt/etc/fstab

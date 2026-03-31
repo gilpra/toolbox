@@ -15,3 +15,9 @@ read -r -p "Input your EFI Filesystem Partition (example: /dev/nvme0n1p1): " PAT
 read -r -p "Input your Linux System Partition (example: /dev/nvme0n1p2): " PATH_LINUX
 [[ -b "$PATH_BOOT" ]]  || die "EFI partition $PATH_BOOT not found"
 [[ -b "$PATH_LINUX" ]] || die "Linux partition $PATH_LINUX not found"
+
+read -r -p "Input hostname: " HOSTNAME
+read -r -p "Input timezone (example: Asia/Jakarta): " TIMEZONE
+read -r -p "Enter new username: " USERNAME
+read -r -s -p "Set root password: " ROOT_PASS;  echo
+read -r -s -p "Set password for $USERNAME: " USER_PASS; echo

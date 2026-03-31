@@ -55,3 +55,25 @@ pacstrap -K /mnt base base-devel \
   grub efibootmgr
 
 genfstab -U /mnt >> /mnt/etc/fstab
+
+# === CONFIG SYSTEM ===
+arch-chroot /mnt /bin/bash <<EOF
+set -Eeuo pipefail
+
+ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
+hwclock --systohc
+
+sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+locale-gen
+echo "LANG=en_US.UTF-8" > /etc/locale.conf
+
+echo "$HOSTNAME" > /etc/hostname
+
+# mkinitcpio: tambahkan modul btrfs (aman bila dobel)
+if ! grep -q '^MODULES=.*btrfs' /etc/mkinitcpio.conf; then
+  sed -i 's/^MODULES=(/MODULES=(btrfs /' /etc/mkinitcpio.conf
+fi
+mkinitcpio -P
+
+EOF
+

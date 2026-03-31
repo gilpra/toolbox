@@ -75,5 +75,25 @@ if ! grep -q '^MODULES=.*btrfs' /etc/mkinitcpio.conf; then
 fi
 mkinitcpio -P
 
+# === USERS & PASSWORDS ===
+useradd -m -G wheel -s /bin/bash "$USERNAME"
+printf 'root:%s\n' "$ROOT_PASS" | chpasswd
+printf '%s:%s\n' "$USERNAME" "$USER_PASS" | chpasswd
+
+# === SUDO CONFIG (wheel group) ===
+echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/99_wheel
+chmod 440 /etc/sudoers.d/99_wheel
+
+# === ENABLE SERVICES ===
+systemctl enable NetworkManager
+systemctl enable fstrim.timer
+
+# === INSTALL GRUB ===
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
+grub-mkconfig -o /boot/grub/grub.cfg
 EOF
 
+# === CLEAR PASSWORD VARIABLE ===
+unset ROOT_PASS USER_PASS
+
+echo "==> Installation complete! Reboot and login as $USERNAME"

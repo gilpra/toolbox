@@ -24,3 +24,12 @@ if ((SELECTED < 0 || SELECTED >= "${#AUR_HELPER[@]}")); then
 fi
 
 AUR="${AUR_HELPER[SELECTED]}"
+
+if command -v "$AUR" &>/dev/null; then
+  echo "$AUR already installed, skip the process"
+  exit 0
+fi
+
+echo "Installed: ${AUR_HELPER[SELECTED]}"
+
+sudo pacman -S --needed git base-devel

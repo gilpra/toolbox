@@ -33,3 +33,21 @@ fi
 echo "Installed: ${AUR_HELPER[SELECTED]}"
 
 sudo pacman -S --needed git base-devel
+
+TEMP_DIR=$(mktemp -d)
+
+trap 'rm -rf "$TEMP_DIR"' EXIT
+
+echo
+echo "Cloning AUR Helper from Repository..."
+
+case "$AUR" in
+yay)
+  git clone https://aur.archlinux.org/yay-bin.git "$TEMP_DIR"
+  ;;
+paru)
+  git clone https://aur.archlinux.org/paru.git "$TEMP_DIR"
+  ;;
+esac
+
+cd "$TEMP_DIR"

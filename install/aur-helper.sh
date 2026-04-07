@@ -51,3 +51,10 @@ paru)
 esac
 
 cd "$TEMP_DIR"
+
+echo
+echo "Building and installing $AUR..."
+makepkg -si
+
+echo
+echo "$AUR installation complete!"

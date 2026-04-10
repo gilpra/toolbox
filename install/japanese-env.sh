@@ -18,3 +18,14 @@ fi
 echo
 echo "Refresh font cache"
 fc-cache -fv "$FONT_DIR"
+
+echo
+echo "Setting locales..."
+sudo sed -i 's/^# *ja_JP.UTF-8 UTF-8/ja_JP.UTF-8 UTF-8/' /etc/locale.gen
+
+echo
+echo "Generating locales..."
+sudo locale-gen
+
+echo
+echo "Installation complete!"

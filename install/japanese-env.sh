@@ -15,3 +15,6 @@ else
   echo "Font already exists, skipping download."
 fi
 
+echo
+echo "Refresh font cache"
+fc-cache -fv "$FONT_DIR"

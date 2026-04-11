@@ -9,3 +9,7 @@ if ! grep -q "^\[multilib\]$" /etc/pacman.conf; then
   sudo sed -i '/^#\[multilib\]/,/^#Include/s/^#//' /etc/pacman.conf
 fi
 sudo pacman -Syu --noconfirm
+
+echo
+echo "Installing intel package..."
+sudo pacman -S --noconfirm --needed mesa vulkan-intel intel-media-driver intel-ucode

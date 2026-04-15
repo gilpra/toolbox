@@ -19,6 +19,7 @@ def get_scripts(category: Path) -> list[Path]:
 def format_name(name: str) -> str:
     return name.replace("-", " ").replace("_", " ").title()
 
+
 def run_script(script: Path):
     curses.endwin()
     print(f"\n▶ Running: {script.name}\n")
@@ -29,6 +30,7 @@ def run_script(script: Path):
     else:
         print(f"Exit code: {result.returncode}")
     input("\nPress Enter to return to the menu...")
+
 
 def draw_menu(stdscr, title: str, items: list[str], selected: int, hint: str = ""):
     h, w = stdscr.getmaxyx()
@@ -89,6 +91,7 @@ def navigate(stdscr, title: str, items: list[str], hint: str = "") -> int | None
         elif key in (ord("q"), 27):
             return None
 
+
 def screen_categories(stdscr):
     while True:
         categories = get_categories()
@@ -147,3 +150,19 @@ def screen_confirm(stdscr, script: Path):
     if choice == 0:
         run_script(script)
 
+
+def main(stdscr):
+    curses.curs_set(0)
+    curses.start_color()
+    curses.use_default_colors()
+
+    curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)  # normal
+    curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_WHITE)  # selected
+    curses.init_pair(3, curses.COLOR_WHITE, curses.COLOR_BLACK)  # judul
+    curses.init_pair(4, curses.COLOR_WHITE, curses.COLOR_BLACK)  # hint
+
+    screen_categories(stdscr)
+
+
+if __name__ == "__main__":
+    curses.wrapper(main)

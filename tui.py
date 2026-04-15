@@ -19,3 +19,14 @@ def get_scripts(category: Path) -> list[Path]:
 def format_name(name: str) -> str:
     return name.replace("-", " ").replace("_", " ").title()
 
+def run_script(script: Path):
+    curses.endwin()
+    print(f"\n▶ Running: {script.name}\n")
+    result = subprocess.run(["bash", str(script)])
+    print()
+    if result.returncode == 0:
+        print("Selesai.")
+    else:
+        print(f"Exit code: {result.returncode}")
+    input("\nPress Enter to return to the menu...")
+

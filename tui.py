@@ -89,3 +89,61 @@ def navigate(stdscr, title: str, items: list[str], hint: str = "") -> int | None
         elif key in (ord("q"), 27):
             return None
 
+def screen_categories(stdscr):
+    while True:
+        categories = get_categories()
+
+        if not categories:
+            stdscr.clear()
+            h, w = stdscr.getmaxyx()
+            msg = f"No categories yet in:: {SCRIPTS_DIR}"
+            stdscr.addstr(h // 2, max(0, (w - len(msg)) // 2), msg)
+            stdscr.addstr(h // 2 + 1, max(0, (w - 22) // 2), "Press [q] to quit.")
+            stdscr.refresh()
+            if stdscr.getch() in (ord("q"), 27):
+                return
+            continue
+
+        labels = [format_name(cat.name) for cat in categories]
+        hint = "[↑↓] navigate   [Enter] select   [q] quit"
+        choice = navigate(stdscr, "Script Runner", labels, hint)
+
+        if choice is None:
+            break
+
+        screen_scripts(stdscr, categories[choice])
+
+
+def screen_scripts(stdscr, category: Path):
+    while True:
+        scripts = list(get_scripts(category))
+
+        if not scripts:
+            stdscr.clear()
+            h, w = stdscr.getmaxyx()
+            msg = f"There are no scripts in the folder '{category.name}'."
+            stdscr.addstr(h // 2, max(0, (w - len(msg)) // 2), msg)
+            stdscr.addstr(h // 2 + 1, max(0, (w - 22) // 2), "Press [q] to back.")
+            stdscr.refresh()
+            if stdscr.getch() in (ord("q"), 27):
+                return
+            continue
+
+        labels = [format_name(s.stem) for s in scripts]
+        hint = "[↑↓] navigate   [Enter] select   [q] quit"
+        choice = navigate(stdscr, format_name(category.name), labels, hint)
+
+        if choice is None:
+            return
+
+        screen_confirm(stdscr, scripts[choice])
+
+
+def screen_confirm(stdscr, script: Path):
+    items = [f"▶  Running  {format_name(script.stem)}", "✕  Batal"]
+    hint = "[↑↓] navigate   [Enter] select   [q] cancel"
+    choice = navigate(stdscr, "Confirmation", items, hint)
+
+    if choice == 0:
+        run_script(script)
+

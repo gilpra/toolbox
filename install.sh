@@ -190,37 +190,89 @@ grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
 EOF
 
-# arch-chroot /mnt /bin/bash <<EOF
-# set -Eeuo pipefail
-#
-# ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
-# hwclock --systohc
-#
-# sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
-# locale-gen
-# echo "LANG=en_US.UTF-8" > /etc/locale.conf
-#
-# echo "$HOSTNAME" > /etc/hostname
-#
-# # === USERS & PASSWORDS ===
-# useradd -m -G wheel -s /bin/bash "$USERNAME"
-# printf 'root:%s\n' "$ROOT_PASS" | chpasswd
-# printf '%s:%s\n' "$USERNAME" "$USER_PASS" | chpasswd
-#
-# # === SUDO CONFIG (wheel group) ===
-# echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/99_wheel
-# chmod 440 /etc/sudoers.d/99_wheel
-#
-# # === ENABLE SERVICES ===
-# systemctl enable NetworkManager
-# systemctl enable fstrim.timer
-#
-# # === INSTALL GRUB ===
-# grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
-# grub-mkconfig -o /boot/grub/grub.cfg
-# EOF
-#
-# # === CLEAR PASSWORD VARIABLE ===
-# unset ROOT_PASS USER_PASS
-#
-# echo "==> Installation complete! Reboot and login as $USERNAME"
+# Cleanup
+unset ROOT_PASS ROOT_PASS2 USER_PASS USER_PASS2
+
+# Post-install verification
+info "Running post-install checks..."
+CHECKS_FAILED=0
+
+# fstab validity
+if findmnt --verify --tab-file /mnt/etc/fstab &>/dev/null; then
+  ok "fstab is valid"
+else
+  fail "fstab validation failed — run 'findmnt --verify' after reboot"
+fi
+
+# EFI bootloader binary
+if [[ -f /mnt/boot/efi/EFI/GRUB/grubx64.efi ]]; then
+  ok "GRUB EFI binary found"
+else
+  fail "GRUB EFI binary missing at /boot/efi/EFI/GRUB/grubx64.efi"
+fi
+
+# GRUB config
+if [[ -f /mnt/boot/grub/grub.cfg ]]; then
+  ok "grub.cfg found"
+else
+  fail "grub.cfg missing — grub-mkconfig may have failed"
+fi
+
+# Initramfs images for both kernels
+for _img in \
+  /mnt/boot/initramfs-linux.img \
+  /mnt/boot/initramfs-linux-zen.img; do
+  if [[ -f "$_img" ]]; then
+    ok "Initramfs present: $(basename "$_img")"
+  else
+    fail "Missing initramfs: $_img"
+  fi
+done
+
+# User exists
+if arch-chroot /mnt id "$USERNAME" &>/dev/null; then
+  ok "User '$USERNAME' exists"
+else
+  fail "User '$USERNAME' not found in chroot"
+fi
+
+# Locale generated
+if grep -q "^en_US.UTF-8" /mnt/etc/locale.gen 2>/dev/null; then
+  ok "Locale en_US.UTF-8 configured"
+else
+  fail "Locale may not be configured correctly"
+fi
+
+# Enabled services (now including systemd-timesyncd)
+for _svc in NetworkManager fstrim.timer systemd-timesyncd; do
+  if arch-chroot /mnt systemctl is-enabled "$_svc" &>/dev/null; then
+    ok "Service enabled: $_svc"
+  else
+    fail "Service NOT enabled: $_svc"
+  fi
+done
+
+# Hostname
+if [[ "$(cat /mnt/etc/hostname 2>/dev/null)" == "$HOSTNAME" ]]; then
+  ok "Hostname: $HOSTNAME"
+else
+  fail "Hostname mismatch in /etc/hostname"
+fi
+
+# /etc/hosts has the 127.0.1.1 entry
+if grep -q "127.0.1.1" /mnt/etc/hosts 2>/dev/null; then
+  ok "/etc/hosts has 127.0.1.1 entry"
+else
+  fail "/etc/hosts missing 127.0.1.1 entry"
+fi
+
+# Final result
+echo
+if [[ "$CHECKS_FAILED" -eq 0 ]]; then
+  echo "✔  All checks passed."
+  echo "✔  Installation complete — reboot and login as: $USERNAME"
+else
+  echo "✘  Installation finished with warnings."
+  echo "   Review [FAIL] items above before rebooting."
+fi
+echo

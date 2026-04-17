@@ -37,18 +37,6 @@ reflector \
     echo "  [WARN] reflector failed — continuing with existing mirrorlist"
 }
 
-# === PARTITIONING ===
-echo "==> Run cfdisk to create partitions (EFI + Linux)"
-read -r -p "Insert disk (example: /dev/nvme0n1): " DISK
-[[ -b "$DISK" ]] || die "Disk $DISK not found"
-cfdisk "$DISK"
-
-# Setelah keluar dari cfdisk, user inputkan path partisi
-read -r -p "Input your EFI Filesystem Partition (example: /dev/nvme0n1p1): " PATH_BOOT
-read -r -p "Input your Linux System Partition (example: /dev/nvme0n1p2): " PATH_LINUX
-[[ -b "$PATH_BOOT" ]] || die "EFI partition $PATH_BOOT not found"
-[[ -b "$PATH_LINUX" ]] || die "Linux partition $PATH_LINUX not found"
-
 # Partitioning
 info "Partition setup"
 read -r -p "  Insert disk (example: /dev/nvme0n1): " DISK
@@ -156,6 +144,8 @@ echo "${HOSTNAME}" > /etc/hostname
 } > /etc/hosts
 
 sed -i 's/^MODULES=(/MODULES=(btrfs /' /etc/mkinitcpio.conf
+echo "KEYMAP=us" > /etc/vconsole.conf
+
 mkinitcpio -P
 EOF
 
@@ -169,9 +159,9 @@ EOF
 # Passwords — piped from outside
 info "Setting passwords..."
 printf 'root:%s\n' "$ROOT_PASS" | arch-chroot /mnt chpasswd ||
-  die "Failed to set root password"
+    die "Failed to set root password"
 printf '%s:%s\n' "$USERNAME" "$USER_PASS" | arch-chroot /mnt chpasswd ||
-  die "Failed to set user password"
+    die "Failed to set user password"
 
 # chroot block 3 — sudo, services, GRUB
 info "Configuring sudo, services, GRUB..."
@@ -199,80 +189,80 @@ CHECKS_FAILED=0
 
 # fstab validity
 if findmnt --verify --tab-file /mnt/etc/fstab &>/dev/null; then
-  ok "fstab is valid"
+    ok "fstab is valid"
 else
-  fail "fstab validation failed — run 'findmnt --verify' after reboot"
+    fail "fstab validation failed — run 'findmnt --verify' after reboot"
 fi
 
 # EFI bootloader binary
 if [[ -f /mnt/boot/efi/EFI/GRUB/grubx64.efi ]]; then
-  ok "GRUB EFI binary found"
+    ok "GRUB EFI binary found"
 else
-  fail "GRUB EFI binary missing at /boot/efi/EFI/GRUB/grubx64.efi"
+    fail "GRUB EFI binary missing at /boot/efi/EFI/GRUB/grubx64.efi"
 fi
 
 # GRUB config
 if [[ -f /mnt/boot/grub/grub.cfg ]]; then
-  ok "grub.cfg found"
+    ok "grub.cfg found"
 else
-  fail "grub.cfg missing — grub-mkconfig may have failed"
+    fail "grub.cfg missing — grub-mkconfig may have failed"
 fi
 
 # Initramfs images for both kernels
 for _img in \
-  /mnt/boot/initramfs-linux.img \
-  /mnt/boot/initramfs-linux-zen.img; do
-  if [[ -f "$_img" ]]; then
-    ok "Initramfs present: $(basename "$_img")"
-  else
-    fail "Missing initramfs: $_img"
-  fi
+    /mnt/boot/initramfs-linux.img \
+    /mnt/boot/initramfs-linux-zen.img; do
+    if [[ -f "$_img" ]]; then
+        ok "Initramfs present: $(basename "$_img")"
+    else
+        fail "Missing initramfs: $_img"
+    fi
 done
 
 # User exists
 if arch-chroot /mnt id "$USERNAME" &>/dev/null; then
-  ok "User '$USERNAME' exists"
+    ok "User '$USERNAME' exists"
 else
-  fail "User '$USERNAME' not found in chroot"
+    fail "User '$USERNAME' not found in chroot"
 fi
 
 # Locale generated
 if grep -q "^en_US.UTF-8" /mnt/etc/locale.gen 2>/dev/null; then
-  ok "Locale en_US.UTF-8 configured"
+    ok "Locale en_US.UTF-8 configured"
 else
-  fail "Locale may not be configured correctly"
+    fail "Locale may not be configured correctly"
 fi
 
 # Enabled services (now including systemd-timesyncd)
 for _svc in NetworkManager fstrim.timer systemd-timesyncd; do
-  if arch-chroot /mnt systemctl is-enabled "$_svc" &>/dev/null; then
-    ok "Service enabled: $_svc"
-  else
-    fail "Service NOT enabled: $_svc"
-  fi
+    if arch-chroot /mnt systemctl is-enabled "$_svc" &>/dev/null; then
+        ok "Service enabled: $_svc"
+    else
+        fail "Service NOT enabled: $_svc"
+    fi
 done
 
 # Hostname
 if [[ "$(cat /mnt/etc/hostname 2>/dev/null)" == "$HOSTNAME" ]]; then
-  ok "Hostname: $HOSTNAME"
+    ok "Hostname: $HOSTNAME"
 else
-  fail "Hostname mismatch in /etc/hostname"
+    fail "Hostname mismatch in /etc/hostname"
 fi
 
 # /etc/hosts has the 127.0.1.1 entry
 if grep -q "127.0.1.1" /mnt/etc/hosts 2>/dev/null; then
-  ok "/etc/hosts has 127.0.1.1 entry"
+    ok "/etc/hosts has 127.0.1.1 entry"
 else
-  fail "/etc/hosts missing 127.0.1.1 entry"
+    fail "/etc/hosts missing 127.0.1.1 entry"
 fi
 
 # Final result
 echo
 if [[ "$CHECKS_FAILED" -eq 0 ]]; then
-  echo "✔  All checks passed."
-  echo "✔  Installation complete — reboot and login as: $USERNAME"
+    echo "  ✔  All checks passed."
+    echo "  ✔  Installation complete — reboot and login as: $USERNAME"
 else
-  echo "✘  Installation finished with warnings."
-  echo "   Review [FAIL] items above before rebooting."
+    echo "  ✘  Installation finished with warnings."
+    echo "     Review [FAIL] items above before rebooting."
 fi
 echo

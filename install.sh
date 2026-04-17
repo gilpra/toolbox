@@ -1,8 +1,41 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# === UTIL ===
-die() { echo "ERROR: $*" >&2; exit 1; }
+# Helpers
+die() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+info() {
+  echo
+  echo "==> $*"
+}
+ok() { echo "  [OK] $*"; }
+fail() {
+  echo "  [FAIL] $*" >&2
+  CHECKS_FAILED=1
+}
+confirm() {
+  read -r -p "$1 [y/N] " _ans
+  [[ "${_ans,,}" == "y" ]] || die "Aborted by user."
+}
+
+# Pre-flight: check required tools
+for _cmd in cfdisk mkfs.fat mkfs.btrfs pacstrap arch-chroot genfstab reflector; do
+  command -v "$_cmd" &>/dev/null || die "Required tool '$_cmd' not found. Are you running from Arch ISO?"
+done
+
+# Optimize mirrorlist with reflector before pacstrap
+info "Optimizing mirrorlist with reflector..."
+echo "  Fetching fastest mirrors (this may take ~30s)..."
+reflector \
+  --age 12 \
+  --protocol https \
+  --sort rate \
+  --save /etc/pacman.d/mirrorlist \
+  --latest 10 && ok "Mirrorlist updated" || {
+  echo "  [WARN] reflector failed — continuing with existing mirrorlist"
+}
 
 # === PARTITIONING ===
 echo "==> Run cfdisk to create partitions (EFI + Linux)"

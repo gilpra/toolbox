@@ -102,13 +102,14 @@ umount /mnt
 
 # Mount
 info "Mounting subvolumes..."
-_OPTS="noatime,compress=zstd:3"
+_OPTS="noatime,compress=zstd:3,ssd,space_cache=v2,discard=async"
+_OPTS_NOCOW="noatime,nodatacow,ssd,space_cache=v2,discard=async"
 mount -o "${_OPTS},subvol=@" "$LINUX_PART" /mnt
-mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp,var/lib}
+mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp}
 mount -o "${_OPTS},autodefrag,subvol=@home" "$LINUX_PART" /mnt/home
-mount -o "${_OPTS},subvol=@log" "$LINUX_PART" /mnt/var/log
-mount -o "${_OPTS},subvol=@cache" "$LINUX_PART" /mnt/var/cache
-mount -o "noatime,nodatacow,nodatasum,subvol=@tmp" "$LINUX_PART" /mnt/tmp
+mount -o "${_OPTS_NOCOW},subvol=@log" "$LINUX_PART" /mnt/var/log
+mount -o "${_OPTS_NOCOW},subvol=@cache" "$LINUX_PART" /mnt/var/cache
+mount -o "${_OPTS_NOCOW},subvol=@tmp" "$LINUX_PART" /mnt/tmp
 mount "$EFI_PART" /mnt/boot/efi
 
 # Base install

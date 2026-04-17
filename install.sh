@@ -3,38 +3,38 @@ set -Eeuo pipefail
 
 # Helpers
 die() {
-  echo "ERROR: $*" >&2
-  exit 1
+    echo "ERROR: $*" >&2
+    exit 1
 }
 info() {
-  echo
-  echo "==> $*"
+    echo
+    echo "==> $*"
 }
 ok() { echo "  [OK] $*"; }
 fail() {
-  echo "  [FAIL] $*" >&2
-  CHECKS_FAILED=1
+    echo "  [FAIL] $*" >&2
+    CHECKS_FAILED=1
 }
 confirm() {
-  read -r -p "$1 [y/N] " _ans
-  [[ "${_ans,,}" == "y" ]] || die "Aborted by user."
+    read -r -p "$1 [y/N] " _ans
+    [[ "${_ans,,}" == "y" ]] || die "Aborted by user."
 }
 
 # Pre-flight: check required tools
 for _cmd in cfdisk mkfs.fat mkfs.btrfs pacstrap arch-chroot genfstab reflector; do
-  command -v "$_cmd" &>/dev/null || die "Required tool '$_cmd' not found. Are you running from Arch ISO?"
+    command -v "$_cmd" &>/dev/null || die "Required tool '$_cmd' not found. Are you running from Arch ISO?"
 done
 
 # Optimize mirrorlist with reflector before pacstrap
 info "Optimizing mirrorlist with reflector..."
 echo "  Fetching fastest mirrors (this may take ~30s)..."
 reflector \
-  --age 12 \
-  --protocol https \
-  --sort rate \
-  --save /etc/pacman.d/mirrorlist \
-  --latest 10 && ok "Mirrorlist updated" || {
-  echo "  [WARN] reflector failed — continuing with existing mirrorlist"
+    --age 12 \
+    --protocol https \
+    --sort rate \
+    --save /etc/pacman.d/mirrorlist \
+    --latest 10 && ok "Mirrorlist updated" || {
+    echo "  [WARN] reflector failed — continuing with existing mirrorlist"
 }
 
 # === PARTITIONING ===
@@ -46,7 +46,7 @@ cfdisk "$DISK"
 # Setelah keluar dari cfdisk, user inputkan path partisi
 read -r -p "Input your EFI Filesystem Partition (example: /dev/nvme0n1p1): " PATH_BOOT
 read -r -p "Input your Linux System Partition (example: /dev/nvme0n1p2): " PATH_LINUX
-[[ -b "$PATH_BOOT" ]]  || die "EFI partition $PATH_BOOT not found"
+[[ -b "$PATH_BOOT" ]] || die "EFI partition $PATH_BOOT not found"
 [[ -b "$PATH_LINUX" ]] || die "Linux partition $PATH_LINUX not found"
 
 # Partitioning
@@ -105,8 +105,8 @@ mkfs.btrfs -f "$LINUX_PART"
 info "Creating Btrfs subvolumes..."
 mount "$LINUX_PART" /mnt
 for _sv in @ @home @log @cache @tmp; do
-  btrfs subvolume create "/mnt/$_sv"
-  ok "Subvolume $_sv created"
+    btrfs subvolume create "/mnt/$_sv"
+    ok "Subvolume $_sv created"
 done
 umount /mnt
 
@@ -124,50 +124,95 @@ mount "$EFI_PART" /mnt/boot/efi
 # Base install
 info "Running pacstrap (this will take a while)..."
 pacstrap -K /mnt \
-  base base-devel \
-  linux-zen linux-zen-headers \
-  linux-firmware btrfs-progs \
-  sudo git networkmanager \
-  pipewire pipewire-pulse pipewire-jack pipewire-alsa wireplumber \
-  grub efibootmgr sof-firmware
+    base base-devel \
+    linux-zen linux-zen-headers \
+    linux-firmware btrfs-progs \
+    sudo git networkmanager \
+    pipewire pipewire-pulse pipewire-jack pipewire-alsa wireplumber \
+    grub efibootmgr sof-firmware
 
 # fstab
 info "Generating fstab..."
 genfstab -U /mnt >/mnt/etc/fstab
 ok "fstab written"
 
-# === CONFIG SYSTEM ===
-arch-chroot /mnt /bin/bash <<EOF
+# chroot block 1 — locale, hostname, initramfs
+info "Configuring locale, hostname, initramfs..."
+arch-chroot /mnt /bin/bash <<EOF || die "chroot [locale/host/initramfs] failed"
 set -Eeuo pipefail
 
-ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
+ln -sf "/usr/share/zoneinfo/${TIMEZONE}" /etc/localtime
 hwclock --systohc
 
 sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
 locale-gen
 echo "LANG=en_US.UTF-8" > /etc/locale.conf
 
-echo "$HOSTNAME" > /etc/hostname
+echo "${HOSTNAME}" > /etc/hostname
+{
+    echo "127.0.0.1   localhost"
+    echo "::1         localhost"
+    echo "127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}"
+} > /etc/hosts
 
-# === USERS & PASSWORDS ===
-useradd -m -G wheel -s /bin/bash "$USERNAME"
-printf 'root:%s\n' "$ROOT_PASS" | chpasswd
-printf '%s:%s\n' "$USERNAME" "$USER_PASS" | chpasswd
-
-# === SUDO CONFIG (wheel group) ===
-echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/99_wheel
-chmod 440 /etc/sudoers.d/99_wheel
-
-# === ENABLE SERVICES ===
-systemctl enable NetworkManager
-systemctl enable fstrim.timer
-
-# === INSTALL GRUB ===
-grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
-grub-mkconfig -o /boot/grub/grub.cfg
+sed -i 's/^MODULES=(/MODULES=(btrfs /' /etc/mkinitcpio.conf
+mkinitcpio -P
 EOF
 
-# === CLEAR PASSWORD VARIABLE ===
-unset ROOT_PASS USER_PASS
+# chroot block 2 — user creation
+info "Creating user '$USERNAME'..."
+arch-chroot /mnt /bin/bash <<EOF || die "chroot [useradd] failed"
+set -Eeuo pipefail
+useradd -m -G wheel -s /bin/bash "${USERNAME}"
+EOF
 
-echo "==> Installation complete! Reboot and login as $USERNAME"
+# Passwords — piped from outside
+info "Setting passwords..."
+printf 'root:%s\n' "$ROOT_PASS" | arch-chroot /mnt chpasswd ||
+  die "Failed to set root password"
+printf '%s:%s\n' "$USERNAME" "$USER_PASS" | arch-chroot /mnt chpasswd ||
+  die "Failed to set user password"
+
+# chroot block 3 — sudo
+info "Configuring sudo..."
+arch-chroot /mnt /bin/bash <<EOF || die "chroot [services/grub] failed"
+set -Eeuo pipefail
+
+echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/99_wheel
+chmod 440 /etc/sudoers.d/99_wheel
+EOF
+
+# arch-chroot /mnt /bin/bash <<EOF
+# set -Eeuo pipefail
+#
+# ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
+# hwclock --systohc
+#
+# sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+# locale-gen
+# echo "LANG=en_US.UTF-8" > /etc/locale.conf
+#
+# echo "$HOSTNAME" > /etc/hostname
+#
+# # === USERS & PASSWORDS ===
+# useradd -m -G wheel -s /bin/bash "$USERNAME"
+# printf 'root:%s\n' "$ROOT_PASS" | chpasswd
+# printf '%s:%s\n' "$USERNAME" "$USER_PASS" | chpasswd
+#
+# # === SUDO CONFIG (wheel group) ===
+# echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/99_wheel
+# chmod 440 /etc/sudoers.d/99_wheel
+#
+# # === ENABLE SERVICES ===
+# systemctl enable NetworkManager
+# systemctl enable fstrim.timer
+#
+# # === INSTALL GRUB ===
+# grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
+# grub-mkconfig -o /boot/grub/grub.cfg
+# EOF
+#
+# # === CLEAR PASSWORD VARIABLE ===
+# unset ROOT_PASS USER_PASS
+#
+# echo "==> Installation complete! Reboot and login as $USERNAME"

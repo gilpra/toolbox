@@ -49,11 +49,37 @@ read -r -p "Input your Linux System Partition (example: /dev/nvme0n1p2): " PATH_
 [[ -b "$PATH_BOOT" ]]  || die "EFI partition $PATH_BOOT not found"
 [[ -b "$PATH_LINUX" ]] || die "Linux partition $PATH_LINUX not found"
 
-read -r -p "Input hostname: " HOSTNAME
-read -r -p "Input timezone (example: Asia/Jakarta): " TIMEZONE
-read -r -p "Enter new username: " USERNAME
-read -r -s -p "Set root password: " ROOT_PASS;  echo
-read -r -s -p "Set password for $USERNAME: " USER_PASS; echo
+# Partitioning
+info "Partition setup"
+read -r -p "  Insert disk (example: /dev/nvme0n1): " DISK
+[[ -b "$DISK" ]] || die "Disk '$DISK' not found"
+cfdisk "$DISK"
+
+read -r -p "  Input your EFI Filesystem Partition (example: /dev/nvme0n1p1): " EFI_PART
+read -r -p "  Input your Linux System Partition  (example: /dev/nvme0n1p2): " LINUX_PART
+[[ -b "$EFI_PART" ]] || die "EFI partition '$EFI_PART' not found"
+[[ -b "$LINUX_PART" ]] || die "Linux partition '$LINUX_PART' not found"
+
+# System info
+info "System configuration"
+read -r -p "  Hostname: " HOSTNAME
+read -r -p "  Timezone (example: Asia/Jakarta): " TIMEZONE
+[[ -f "/usr/share/zoneinfo/$TIMEZONE" ]] || die "Invalid timezone '$TIMEZONE'"
+
+read -r -p "  Username: " USERNAME
+[[ "$USERNAME" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "Invalid username '$USERNAME'"
+
+read -r -s -p "  Root password: " ROOT_PASS
+echo
+read -r -s -p "  Confirm root password: " ROOT_PASS2
+echo
+[[ "$ROOT_PASS" == "$ROOT_PASS2" ]] || die "Root passwords do not match"
+
+read -r -s -p "  Password for $USERNAME: " USER_PASS
+echo
+read -r -s -p "  Confirm password for $USERNAME: " USER_PASS2
+echo
+[[ "$USER_PASS" == "$USER_PASS2" ]] || die "User passwords do not match"
 
 # === FORMAT & MOUNT ===
 mkfs.fat -F32 "$PATH_BOOT"

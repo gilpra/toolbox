@@ -81,6 +81,21 @@ read -r -s -p "  Confirm password for $USERNAME: " USER_PASS2
 echo
 [[ "$USER_PASS" == "$USER_PASS2" ]] || die "User passwords do not match"
 
+# Final confirmation
+echo
+echo "  ┌─────────────────────────────────────┐"
+echo "  │  Installation summary               │"
+echo "  ├─────────────────────────────────────┤"
+printf "  │  Disk     : %-23s │\n" "$DISK"
+printf "  │  EFI      : %-23s │\n" "$EFI_PART"
+printf "  │  Linux    : %-23s │\n" "$LINUX_PART"
+printf "  │  Hostname : %-23s │\n" "$HOSTNAME"
+printf "  │  Timezone : %-23s │\n" "$TIMEZONE"
+printf "  │  Username : %-23s │\n" "$USERNAME"
+echo "  └─────────────────────────────────────┘"
+echo
+confirm "WARNING: All data on $EFI_PART and $LINUX_PART will be DESTROYED. Continue?"
+
 # === FORMAT & MOUNT ===
 mkfs.fat -F32 "$PATH_BOOT"
 mkfs.btrfs -f "$PATH_LINUX"

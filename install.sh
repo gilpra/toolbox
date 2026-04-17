@@ -96,29 +96,30 @@ echo "  └───────────────────────
 echo
 confirm "WARNING: All data on $EFI_PART and $LINUX_PART will be DESTROYED. Continue?"
 
-# === FORMAT & MOUNT ===
-mkfs.fat -F32 "$PATH_BOOT"
-mkfs.btrfs -f "$PATH_LINUX"
+# Format
+info "Formatting partitions..."
+mkfs.fat -F32 "$EFI_PART"
+mkfs.btrfs -f "$LINUX_PART"
 
-mount "$PATH_LINUX" /mnt
-
-# Buat subvolume (tanpa snapshots)
-btrfs subvolume create /mnt/@
-btrfs subvolume create /mnt/@home
-btrfs subvolume create /mnt/@log
-btrfs subvolume create /mnt/@cache
-btrfs subvolume create /mnt/@tmp
+# Btrfs subvolumes
+info "Creating Btrfs subvolumes..."
+mount "$LINUX_PART" /mnt
+for _sv in @ @home @log @cache @tmp; do
+  btrfs subvolume create "/mnt/$_sv"
+  ok "Subvolume $_sv created"
+done
 umount /mnt
 
-# Mount subvolumes
-mount -o noatime,compress=zstd:3,subvol=@       "$PATH_LINUX" /mnt
+# Mount
+info "Mounting subvolumes..."
+_OPTS="noatime,compress=zstd:3"
+mount -o "${_OPTS},subvol=@" "$LINUX_PART" /mnt
 mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp,var/lib}
-
-mount -o noatime,compress=zstd:3,autodefrag,subvol=@home   "$PATH_LINUX" /mnt/home
-mount -o noatime,compress=zstd:3,subvol=@log               "$PATH_LINUX" /mnt/var/log
-mount -o noatime,compress=zstd:3,subvol=@cache             "$PATH_LINUX" /mnt/var/cache
-mount -o noatime,compress=zstd:3,subvol=@tmp               "$PATH_LINUX" /mnt/tmp
-mount "$PATH_BOOT" /mnt/boot/efi
+mount -o "${_OPTS},autodefrag,subvol=@home" "$LINUX_PART" /mnt/home
+mount -o "${_OPTS},subvol=@log" "$LINUX_PART" /mnt/var/log
+mount -o "${_OPTS},subvol=@cache" "$LINUX_PART" /mnt/var/cache
+mount -o "noatime,nodatacow,nodatasum,subvol=@tmp" "$LINUX_PART" /mnt/tmp
+mount "$EFI_PART" /mnt/boot/efi
 
 # === BASE INSTALL ===
 pacstrap -K /mnt base base-devel \

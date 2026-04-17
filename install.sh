@@ -173,13 +173,21 @@ printf 'root:%s\n' "$ROOT_PASS" | arch-chroot /mnt chpasswd ||
 printf '%s:%s\n' "$USERNAME" "$USER_PASS" | arch-chroot /mnt chpasswd ||
   die "Failed to set user password"
 
-# chroot block 3 — sudo
-info "Configuring sudo..."
+# chroot block 3 — sudo, services, GRUB
+info "Configuring sudo, services, GRUB..."
 arch-chroot /mnt /bin/bash <<EOF || die "chroot [services/grub] failed"
 set -Eeuo pipefail
 
 echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/99_wheel
 chmod 440 /etc/sudoers.d/99_wheel
+
+systemctl enable NetworkManager
+systemctl enable fstrim.timer
+
+systemctl enable systemd-timesyncd
+
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
+grub-mkconfig -o /boot/grub/grub.cfg
 EOF
 
 # arch-chroot /mnt /bin/bash <<EOF

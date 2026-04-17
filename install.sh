@@ -139,11 +139,11 @@ sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
 locale-gen
 echo "LANG=en_US.UTF-8" > /etc/locale.conf
 
-echo "${HOSTNAME}" > /etc/hostname
+echo "${SYS_HOSTNAME}" > /etc/hostname
 {
     echo "127.0.0.1   localhost"
     echo "::1         localhost"
-    echo "127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}"
+    echo "127.0.1.1   ${SYS_HOSTNAME}.localdomain ${SYS_HOSTNAME}"
 } > /etc/hosts
 
 sed -i 's/^MODULES=(/MODULES=(btrfs /' /etc/mkinitcpio.conf
@@ -227,7 +227,7 @@ else
 fi
 
 # Locale generated
-if grep -q "^en_US.UTF-8" /mnt/etc/locale.gen 2>/dev/null; then
+if grep -q "^LANG=en_US.UTF-8" /mnt/etc/locale.conf 2>/dev/null; then
     ok "Locale en_US.UTF-8 configured"
 else
     fail "Locale may not be configured correctly"
@@ -243,8 +243,8 @@ for _svc in NetworkManager fstrim.timer systemd-timesyncd; do
 done
 
 # Hostname
-if [[ "$(cat /mnt/etc/hostname 2>/dev/null)" == "$HOSTNAME" ]]; then
-    ok "Hostname: $HOSTNAME"
+if [[ "$(cat /mnt/etc/hostname 2>/dev/null)" == "$SYS_HOSTNAME" ]]; then
+    ok "Hostname: $SYS_HOSTNAME"
 else
     fail "Hostname mismatch in /etc/hostname"
 fi
@@ -261,8 +261,10 @@ echo
 if [[ "$CHECKS_FAILED" -eq 0 ]]; then
     echo "  ✔  All checks passed."
     echo "  ✔  Installation complete — reboot and login as: $USERNAME"
+    umount -R /mnt && ok "Filesystems unmounted" || echo "  [WARN] umount failed — run 'umount -R /mnt' manually before rebooting"
 else
     echo "  ✘  Installation finished with warnings."
     echo "     Review [FAIL] items above before rebooting."
+    echo "     Run 'umount -R /mnt' manually before rebooting."
 fi
 echo

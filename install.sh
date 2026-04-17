@@ -31,6 +31,7 @@ info "Optimizing mirrorlist with reflector..."
 echo "  Fetching fastest mirrors (this may take ~30s)..."
 reflector \
     --age 12 \
+    --country Indonesia,Singapore \
     --protocol https \
     --sort rate \
     --save /etc/pacman.d/mirrorlist \
@@ -51,7 +52,7 @@ read -r -p "  Input your Linux System Partition  (example: /dev/nvme0n1p2): " LI
 
 # System info
 info "System configuration"
-read -r -p "  Hostname: " HOSTNAME
+read -r -p "  Hostname: " SYS_HOSTNAME
 read -r -p "  Timezone (example: Asia/Jakarta): " TIMEZONE
 [[ -f "/usr/share/zoneinfo/$TIMEZONE" ]] || die "Invalid timezone '$TIMEZONE'"
 
@@ -78,7 +79,7 @@ echo "  ├───────────────────────
 printf "  │  Disk     : %-23s │\n" "$DISK"
 printf "  │  EFI      : %-23s │\n" "$EFI_PART"
 printf "  │  Linux    : %-23s │\n" "$LINUX_PART"
-printf "  │  Hostname : %-23s │\n" "$HOSTNAME"
+printf "  │  Hostname : %-23s │\n" "$SYS_HOSTNAME"
 printf "  │  Timezone : %-23s │\n" "$TIMEZONE"
 printf "  │  Username : %-23s │\n" "$USERNAME"
 echo "  └─────────────────────────────────────┘"

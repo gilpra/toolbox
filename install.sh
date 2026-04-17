@@ -121,15 +121,20 @@ mount -o "${_OPTS},subvol=@cache" "$LINUX_PART" /mnt/var/cache
 mount -o "noatime,nodatacow,nodatasum,subvol=@tmp" "$LINUX_PART" /mnt/tmp
 mount "$EFI_PART" /mnt/boot/efi
 
-# === BASE INSTALL ===
-pacstrap -K /mnt base base-devel \
+# Base install
+info "Running pacstrap (this will take a while)..."
+pacstrap -K /mnt \
+  base base-devel \
   linux-zen linux-zen-headers \
   linux-firmware btrfs-progs \
   sudo git networkmanager \
   pipewire pipewire-pulse pipewire-jack pipewire-alsa wireplumber \
   grub efibootmgr sof-firmware
 
-genfstab -U /mnt >> /mnt/etc/fstab
+# fstab
+info "Generating fstab..."
+genfstab -U /mnt >/mnt/etc/fstab
+ok "fstab written"
 
 # === CONFIG SYSTEM ===
 arch-chroot /mnt /bin/bash <<EOF

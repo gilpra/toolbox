@@ -41,19 +41,23 @@ reflector \
 
 # Partitioning
 info "Partition setup"
-read -r -p "  Insert disk (example: /dev/nvme0n1): " DISK
+read -r -p "  Enter disk device (e.g. /dev/nvme0n1): " DISK
 [[ -b "$DISK" ]] || die "Disk '$DISK' not found"
 cfdisk "$DISK"
 
-read -r -p "  Input your EFI Filesystem Partition (example: /dev/nvme0n1p1): " EFI_PART
-read -r -p "  Input your Linux System Partition  (example: /dev/nvme0n1p2): " LINUX_PART
+read -r -p "  Enter EFI partition (e.g. /dev/nvme0n1p1): " EFI_PART
+read -r -p "  Enter Linux root partition (e.g. /dev/nvme0n1p2): " LINUX_PART
 [[ -b "$EFI_PART" ]] || die "EFI partition '$EFI_PART' not found"
 [[ -b "$LINUX_PART" ]] || die "Linux partition '$LINUX_PART' not found"
+
+# Validate EFI partition size (minimum 100MB)
+_efi_size=$(lsblk -b -n -o SIZE "$EFI_PART" 2>/dev/null)
+[[ "$_efi_size" -ge 104857600 ]] || die "EFI partition is too small (< 100MB), recommended 300MB+"
 
 # System info
 info "System configuration"
 read -r -p "  Hostname: " SYS_HOSTNAME
-read -r -p "  Timezone (example: Asia/Jakarta): " TIMEZONE
+read -r -p "  Timezone (e.g. Asia/Jakarta): " TIMEZONE
 [[ -f "/usr/share/zoneinfo/$TIMEZONE" ]] || die "Invalid timezone '$TIMEZONE'"
 
 read -r -p "  Username: " USERNAME

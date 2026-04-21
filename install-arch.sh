@@ -93,6 +93,28 @@ while true; do
     echo "  [!] Passwords do not match, try again."
 done
 
+# Bootloader selection
+info "Bootloader selection"
+echo "  [1] GRUB         — Universal, multi-OS support, ideal for BTRFS snapshot booting"
+echo "  [2] systemd-boot — Simple, fast, UEFI only"
+echo
+while true; do
+    read -r -p "  Choose bootloader [1/2]: " _bl_choice
+    case "$_bl_choice" in
+    1)
+        BOOTLOADER="grub"
+        echo "  Bootloader: GRUB"
+        break
+        ;;
+    2)
+        BOOTLOADER="systemd-boot"
+        echo "  Bootloader: systemd-boot"
+        break
+        ;;
+    *) echo "  [!] Invalid input, enter 1 or 2." ;;
+    esac
+done
+
 # Final confirmation
 echo
 echo "  ┌─────────────────────────────────────┐"
@@ -104,6 +126,7 @@ printf "  │  Linux    : %-23s │\n" "$LINUX_PART"
 printf "  │  Hostname : %-23s │\n" "$SYS_HOSTNAME"
 printf "  │  Timezone : %-23s │\n" "$TIMEZONE"
 printf "  │  Username : %-23s │\n" "$USERNAME"
+printf "  │  Bootloader: %-22s │\n" "$BOOTLOADER"
 echo "  └─────────────────────────────────────┘"
 echo
 confirm "WARNING: All data on $EFI_PART and $LINUX_PART will be DESTROYED. Continue?"

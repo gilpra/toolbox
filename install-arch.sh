@@ -63,17 +63,35 @@ read -r -p "  Timezone (e.g. Asia/Jakarta): " TIMEZONE
 read -r -p "  Username: " USERNAME
 [[ "$USERNAME" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "Invalid username '$USERNAME'"
 
-read -r -s -p "  Root password: " ROOT_PASS
-echo
-read -r -s -p "  Confirm root password: " ROOT_PASS2
-echo
-[[ "$ROOT_PASS" == "$ROOT_PASS2" ]] || die "Root passwords do not match"
+while true; do
+    read -r -s -p "  Root password: " ROOT_PASS
+    echo
+    if [[ -z "$ROOT_PASS" ]]; then
+        echo "  [!] Password cannot be empty, try again."
+        continue
+    fi
+    read -r -s -p "  Confirm root password: " ROOT_PASS2
+    echo
+    if [[ "$ROOT_PASS" == "$ROOT_PASS2" ]]; then
+        break
+    fi
+    echo "  [!] Passwords do not match, try again."
+done
 
-read -r -s -p "  Password for $USERNAME: " USER_PASS
-echo
-read -r -s -p "  Confirm password for $USERNAME: " USER_PASS2
-echo
-[[ "$USER_PASS" == "$USER_PASS2" ]] || die "User passwords do not match"
+while true; do
+    read -r -s -p "  Password for $USERNAME: " USER_PASS
+    echo
+    if [[ -z "$USER_PASS" ]]; then
+        echo "  [!] Password cannot be empty, try again."
+        continue
+    fi
+    read -r -s -p "  Confirm password for $USERNAME: " USER_PASS2
+    echo
+    if [[ "$USER_PASS" == "$USER_PASS2" ]]; then
+        break
+    fi
+    echo "  [!] Passwords do not match, try again."
+done
 
 # Final confirmation
 echo

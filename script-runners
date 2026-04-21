@@ -1,9 +1,73 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-# Buat venv hanya kalau belum ada
-if [ ! -d "venv" ]; then
-    echo "Creating a virtual environment..."
-    python3 -m venv venv
+shopt -s nullglob
+
+# Check category
+category=()
+for folder in scripts/*/; do
+    category+=($(basename "${folder}"))
+done
+
+# Verification category/folder
+if [[ "${#category[@]}" -eq 0 ]]; then
+    echo "There are no categories in the scripts/ folder"
+    exit 1
 fi
 
-venv/bin/python tui.py
+# Show category menu
+clear
+echo "Select category:"
+for i in "${!category[@]}"; do
+    echo "$((i + 1)). ${category[i]^}"
+done
+
+# Read input category
+echo
+read -p "Select a category (number): " sel
+
+# Check if input not number
+if ! [[ $sel =~ ^[0-9]+$ ]]; then
+    echo "Input not number"
+    exit 1
+fi
+
+# Check if input out bound
+sel=$((sel - 1))
+if ((sel < 0 || sel >= "${#category[@]}")); then
+    echo "Options out of reach"
+    exit 1
+fi
+
+# Show skrip in category
+clear
+echo "Select script category: (${category[sel]^})"
+category_dir="scripts/${category[sel]}"
+
+files=("$category_dir"/*)
+for i in "${!files[@]}"; do
+    if [ -f "${files[i]}" ]; then
+        base="${files[i]##*/}"
+        base="${base%.*}"
+        base="${base//-/ }"
+        echo "$((i + 1)). ${base^}"
+    fi
+done
+
+echo
+read -p "Select script (number): " sc
+
+# Check if input not number
+if ! [[ $sc =~ ^[0-9]+$ ]]; then
+    echo "Input not number"
+    exit 1
+fi
+
+# Check if input out bound
+sc=$((sc - 1))
+if ((sc < 0 || sc >= "${#files[@]}")); then
+    echo "Options out of reach"
+    exit 1
+fi
+
+bash -- ${files[sc]}

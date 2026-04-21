@@ -147,15 +147,35 @@ umount /mnt
 
 # Mount
 info "Mounting subvolumes..."
-_OPTS="noatime,compress=zstd:3,ssd,space_cache=v2,discard=async"
-_OPTS_NOCOW="noatime,nodatacow,ssd,space_cache=v2,discard=async"
+
+# Detect if disk is SSD or HDD
+_rotational=$(cat "/sys/block/$(lsblk -no PKNAME "$LINUX_PART")/queue/rotational" 2>/dev/null || echo "0")
+if [[ "$_rotational" == "0" ]]; then
+  _OPTS="noatime,compress=zstd:3,ssd,space_cache=v2,discard=async"
+  _OPTS_NOCOW="noatime,nodatacow,ssd,space_cache=v2,discard=async"
+  ok "Detected SSD — applying SSD-optimized mount options"
+else
+  _OPTS="noatime,compress=zstd:3,space_cache=v2"
+  _OPTS_NOCOW="noatime,nodatacow,space_cache=v2"
+  ok "Detected HDD — applying HDD-compatible mount options"
+fi
 mount -o "${_OPTS},subvol=@" "$LINUX_PART" /mnt
-mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp}
-mount -o "${_OPTS},autodefrag,subvol=@home" "$LINUX_PART" /mnt/home
-mount -o "${_OPTS_NOCOW},subvol=@log" "$LINUX_PART" /mnt/var/log
-mount -o "${_OPTS_NOCOW},subvol=@cache" "$LINUX_PART" /mnt/var/cache
-mount -o "${_OPTS_NOCOW},subvol=@tmp" "$LINUX_PART" /mnt/tmp
-mount "$EFI_PART" /mnt/boot/efi
+if [[ "$BOOTLOADER" == "grub" ]]; then
+  mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp}
+  mount -o "${_OPTS},autodefrag,subvol=@home" "$LINUX_PART" /mnt/home
+  mount -o "${_OPTS_NOCOW},subvol=@log" "$LINUX_PART" /mnt/var/log
+  mount -o "${_OPTS_NOCOW},subvol=@cache" "$LINUX_PART" /mnt/var/cache
+  mount -o "${_OPTS_NOCOW},subvol=@tmp" "$LINUX_PART" /mnt/tmp
+  mount "$EFI_PART" /mnt/boot/efi
+else
+  # systemd-boot: ESP mounted directly at /boot
+  mkdir -p /mnt/{boot,home,var/log,var/cache,tmp}
+  mount -o "${_OPTS},autodefrag,subvol=@home" "$LINUX_PART" /mnt/home
+  mount -o "${_OPTS_NOCOW},subvol=@log" "$LINUX_PART" /mnt/var/log
+  mount -o "${_OPTS_NOCOW},subvol=@cache" "$LINUX_PART" /mnt/var/cache
+  mount -o "${_OPTS_NOCOW},subvol=@tmp" "$LINUX_PART" /mnt/tmp
+  mount "$EFI_PART" /mnt/boot
+fi
 
 # Base install
 info "Running pacstrap (this will take a while)..."

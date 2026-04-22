@@ -151,41 +151,45 @@ info "Mounting subvolumes..."
 # Detect if disk is SSD or HDD
 _rotational=$(cat "/sys/block/$(lsblk -no PKNAME "$LINUX_PART")/queue/rotational" 2>/dev/null || echo "0")
 if [[ "$_rotational" == "0" ]]; then
-  _OPTS="noatime,compress=zstd:3,ssd,space_cache=v2,discard=async"
-  _OPTS_NOCOW="noatime,nodatacow,ssd,space_cache=v2,discard=async"
-  ok "Detected SSD — applying SSD-optimized mount options"
+    _OPTS="noatime,compress=zstd:3,ssd,space_cache=v2,discard=async"
+    _OPTS_NOCOW="noatime,nodatacow,ssd,space_cache=v2,discard=async"
+    ok "Detected SSD — applying SSD-optimized mount options"
 else
-  _OPTS="noatime,compress=zstd:3,space_cache=v2"
-  _OPTS_NOCOW="noatime,nodatacow,space_cache=v2"
-  ok "Detected HDD — applying HDD-compatible mount options"
+    _OPTS="noatime,compress=zstd:3,space_cache=v2"
+    _OPTS_NOCOW="noatime,nodatacow,space_cache=v2"
+    ok "Detected HDD — applying HDD-compatible mount options"
 fi
 mount -o "${_OPTS},subvol=@" "$LINUX_PART" /mnt
 if [[ "$BOOTLOADER" == "grub" ]]; then
-  mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp}
-  mount -o "${_OPTS},autodefrag,subvol=@home" "$LINUX_PART" /mnt/home
-  mount -o "${_OPTS_NOCOW},subvol=@log" "$LINUX_PART" /mnt/var/log
-  mount -o "${_OPTS_NOCOW},subvol=@cache" "$LINUX_PART" /mnt/var/cache
-  mount -o "${_OPTS_NOCOW},subvol=@tmp" "$LINUX_PART" /mnt/tmp
-  mount "$EFI_PART" /mnt/boot/efi
+    mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp}
+    mount -o "${_OPTS},autodefrag,subvol=@home" "$LINUX_PART" /mnt/home
+    mount -o "${_OPTS_NOCOW},subvol=@log" "$LINUX_PART" /mnt/var/log
+    mount -o "${_OPTS_NOCOW},subvol=@cache" "$LINUX_PART" /mnt/var/cache
+    mount -o "${_OPTS_NOCOW},subvol=@tmp" "$LINUX_PART" /mnt/tmp
+    mount "$EFI_PART" /mnt/boot/efi
 else
-  # systemd-boot: ESP mounted directly at /boot
-  mkdir -p /mnt/{boot,home,var/log,var/cache,tmp}
-  mount -o "${_OPTS},autodefrag,subvol=@home" "$LINUX_PART" /mnt/home
-  mount -o "${_OPTS_NOCOW},subvol=@log" "$LINUX_PART" /mnt/var/log
-  mount -o "${_OPTS_NOCOW},subvol=@cache" "$LINUX_PART" /mnt/var/cache
-  mount -o "${_OPTS_NOCOW},subvol=@tmp" "$LINUX_PART" /mnt/tmp
-  mount "$EFI_PART" /mnt/boot
+    # systemd-boot: ESP mounted directly at /boot
+    mkdir -p /mnt/{boot,home,var/log,var/cache,tmp}
+    mount -o "${_OPTS},autodefrag,subvol=@home" "$LINUX_PART" /mnt/home
+    mount -o "${_OPTS_NOCOW},subvol=@log" "$LINUX_PART" /mnt/var/log
+    mount -o "${_OPTS_NOCOW},subvol=@cache" "$LINUX_PART" /mnt/var/cache
+    mount -o "${_OPTS_NOCOW},subvol=@tmp" "$LINUX_PART" /mnt/tmp
+    mount "$EFI_PART" /mnt/boot
 fi
 
 # Base install
 info "Running pacstrap (this will take a while)..."
+_BOOTLOADER_PKGS=()
+[[ "$BOOTLOADER" == "grub" ]] && _BOOTLOADER_PKGS=(grub efibootmgr)
+
 pacstrap -K /mnt \
     base base-devel \
     linux-zen linux-zen-headers \
     linux-firmware btrfs-progs \
     sudo git networkmanager \
     pipewire pipewire-pulse pipewire-jack pipewire-alsa wireplumber \
-    grub efibootmgr sof-firmware
+    sof-firmware \
+    "${_BOOTLOADER_PKGS[@]}"
 
 # fstab
 info "Generating fstab..."
@@ -231,9 +235,13 @@ printf 'root:%s\n' "$ROOT_PASS" | arch-chroot /mnt chpasswd ||
 printf '%s:%s\n' "$USERNAME" "$USER_PASS" | arch-chroot /mnt chpasswd ||
     die "Failed to set user password"
 
-# chroot block 3 — sudo, services, GRUB
-info "Configuring sudo, services, GRUB..."
-arch-chroot /mnt /bin/bash <<EOF || die "chroot [services/grub] failed"
+# Resolve root PARTUUID outside chroot (blkid needs host /dev)
+_ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$LINUX_PART") ||
+    die "Failed to resolve PARTUUID for $LINUX_PART"
+
+# chroot block 3 — sudo, services, bootloader
+info "Configuring sudo, services, bootloader..."
+arch-chroot /mnt /bin/bash <<EOF || die "chroot [services/bootloader] failed"
 set -Eeuo pipefail
 
 echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/99_wheel
@@ -244,8 +252,38 @@ systemctl enable fstrim.timer
 
 systemctl enable systemd-timesyncd
 
-grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
-grub-mkconfig -o /boot/grub/grub.cfg
+if [[ "${BOOTLOADER}" == "grub" ]]; then
+  grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
+  grub-mkconfig -o /boot/grub/grub.cfg
+else
+  # systemd-boot: ESP is already mounted at /boot
+  bootctl install
+
+  # Create loader.conf
+  cat > /boot/loader/loader.conf <<LOADER
+default  arch.conf
+timeout  4
+console-mode max
+editor   no
+LOADER
+
+  # Create boot entry for linux-zen
+  mkdir -p /boot/loader/entries
+  cat > /boot/loader/entries/arch.conf <<ENTRY
+title   Arch Linux (linux-zen)
+linux   /vmlinuz-linux-zen
+initrd  /initramfs-linux-zen.img
+options root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw
+ENTRY
+
+  # Create fallback boot entry
+  cat > /boot/loader/entries/arch-fallback.conf <<ENTRY
+title   Arch Linux (linux-zen, fallback)
+linux   /vmlinuz-linux-zen
+initrd  /initramfs-linux-zen-fallback.img
+options root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw
+ENTRY
+fi
 EOF
 
 # Cleanup
@@ -262,18 +300,31 @@ else
     fail "fstab validation failed — run 'findmnt --verify' after reboot"
 fi
 
-# EFI bootloader binary
-if [[ -f /mnt/boot/efi/EFI/GRUB/grubx64.efi ]]; then
-    ok "GRUB EFI binary found"
-else
-    fail "GRUB EFI binary missing at /boot/efi/EFI/GRUB/grubx64.efi"
-fi
+# EFI bootloader binary & config
+if [[ "$BOOTLOADER" == "grub" ]]; then
+    if [[ -f /mnt/boot/efi/EFI/GRUB/grubx64.efi ]]; then
+        ok "GRUB EFI binary found"
+    else
+        fail "GRUB EFI binary missing at /boot/efi/EFI/GRUB/grubx64.efi"
+    fi
 
-# GRUB config
-if [[ -f /mnt/boot/grub/grub.cfg ]]; then
-    ok "grub.cfg found"
+    if [[ -f /mnt/boot/grub/grub.cfg ]]; then
+        ok "grub.cfg found"
+    else
+        fail "grub.cfg missing — grub-mkconfig may have failed"
+    fi
 else
-    fail "grub.cfg missing — grub-mkconfig may have failed"
+    if [[ -f /mnt/boot/EFI/systemd/systemd-bootx64.efi ]]; then
+        ok "systemd-boot EFI binary found"
+    else
+        fail "systemd-boot EFI binary missing"
+    fi
+
+    if [[ -f /mnt/boot/loader/entries/arch.conf ]]; then
+        ok "systemd-boot entry arch.conf found"
+    else
+        fail "systemd-boot entry missing at /boot/loader/entries/arch.conf"
+    fi
 fi
 
 # Initramfs images for both kernels

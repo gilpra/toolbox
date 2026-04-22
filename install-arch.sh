@@ -97,9 +97,10 @@ done
 info "Bootloader selection"
 echo "  [1] GRUB         — Universal, multi-OS support, ideal for BTRFS snapshot booting"
 echo "  [2] systemd-boot — Simple, fast, UEFI only"
+echo "  [3] rEFInd       — Graphical boot manager, auto-detects kernels, UEFI only"
 echo
 while true; do
-    read -r -p "  Choose bootloader [1/2]: " _bl_choice
+    read -r -p "  Choose bootloader [1/2/3]: " _bl_choice
     case "$_bl_choice" in
     1)
         BOOTLOADER="grub"
@@ -111,7 +112,12 @@ while true; do
         echo "  Bootloader: systemd-boot"
         break
         ;;
-    *) echo "  [!] Invalid input, enter 1 or 2." ;;
+    3)
+        BOOTLOADER="refind"
+        echo "  Bootloader: rEFInd"
+        break
+        ;;
+    *) echo "  [!] Invalid input, enter 1, 2, or 3." ;;
     esac
 done
 
@@ -159,7 +165,9 @@ else
     _OPTS_NOCOW="noatime,nodatacow,space_cache=v2"
     ok "Detected HDD — applying HDD-compatible mount options"
 fi
+
 mount -o "${_OPTS},subvol=@" "$LINUX_PART" /mnt
+
 if [[ "$BOOTLOADER" == "grub" ]]; then
     mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp}
     mount -o "${_OPTS},autodefrag,subvol=@home" "$LINUX_PART" /mnt/home
@@ -168,7 +176,7 @@ if [[ "$BOOTLOADER" == "grub" ]]; then
     mount -o "${_OPTS_NOCOW},subvol=@tmp" "$LINUX_PART" /mnt/tmp
     mount "$EFI_PART" /mnt/boot/efi
 else
-    # systemd-boot: ESP mounted directly at /boot
+    # systemd-boot & rEFInd: ESP mounted directly at /boot
     mkdir -p /mnt/{boot,home,var/log,var/cache,tmp}
     mount -o "${_OPTS},autodefrag,subvol=@home" "$LINUX_PART" /mnt/home
     mount -o "${_OPTS_NOCOW},subvol=@log" "$LINUX_PART" /mnt/var/log
@@ -181,6 +189,7 @@ fi
 info "Running pacstrap (this will take a while)..."
 _BOOTLOADER_PKGS=()
 [[ "$BOOTLOADER" == "grub" ]] && _BOOTLOADER_PKGS=(grub efibootmgr)
+[[ "$BOOTLOADER" == "refind" ]] && _BOOTLOADER_PKGS=(refind)
 
 pacstrap -K /mnt \
     base base-devel \
@@ -249,17 +258,16 @@ chmod 440 /etc/sudoers.d/99_wheel
 
 systemctl enable NetworkManager
 systemctl enable fstrim.timer
-
 systemctl enable systemd-timesyncd
 
 if [[ "${BOOTLOADER}" == "grub" ]]; then
   grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
   grub-mkconfig -o /boot/grub/grub.cfg
-else
+
+elif [[ "${BOOTLOADER}" == "systemd-boot" ]]; then
   # systemd-boot: ESP is already mounted at /boot
   bootctl install
 
-  # Create loader.conf
   cat > /boot/loader/loader.conf <<LOADER
 default  arch.conf
 timeout  4
@@ -267,7 +275,6 @@ console-mode max
 editor   no
 LOADER
 
-  # Create boot entry for linux-zen
   mkdir -p /boot/loader/entries
   cat > /boot/loader/entries/arch.conf <<ENTRY
 title   Arch Linux (linux-zen)
@@ -276,13 +283,25 @@ initrd  /initramfs-linux-zen.img
 options root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw
 ENTRY
 
-  # Create fallback boot entry
   cat > /boot/loader/entries/arch-fallback.conf <<ENTRY
 title   Arch Linux (linux-zen, fallback)
 linux   /vmlinuz-linux-zen
 initrd  /initramfs-linux-zen-fallback.img
 options root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw
 ENTRY
+
+else
+  # rEFInd: ESP is already mounted at /boot
+  # refind-install auto-detects ESP and installs to EFI/refind/
+  refind-install
+
+  # refind_linux.conf diletakkan di /boot (sejajar dengan kernel)
+  # agar rEFInd tahu kernel options yang benar saat auto-detect vmlinuz-linux-zen
+  cat > /boot/refind_linux.conf <<REFIND
+"Boot default"  "root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw quiet"
+"Boot verbose"  "root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw"
+"Boot fallback" "root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw initrd=initramfs-linux-zen-fallback.img"
+REFIND
 fi
 EOF
 
@@ -313,7 +332,8 @@ if [[ "$BOOTLOADER" == "grub" ]]; then
     else
         fail "grub.cfg missing — grub-mkconfig may have failed"
     fi
-else
+
+elif [[ "$BOOTLOADER" == "systemd-boot" ]]; then
     if [[ -f /mnt/boot/EFI/systemd/systemd-bootx64.efi ]]; then
         ok "systemd-boot EFI binary found"
     else
@@ -324,6 +344,20 @@ else
         ok "systemd-boot entry arch.conf found"
     else
         fail "systemd-boot entry missing at /boot/loader/entries/arch.conf"
+    fi
+
+else
+    # rEFInd
+    if [[ -f /mnt/boot/EFI/refind/refind_x64.efi ]]; then
+        ok "rEFInd EFI binary found"
+    else
+        fail "rEFInd EFI binary missing at /boot/EFI/refind/refind_x64.efi"
+    fi
+
+    if [[ -f /mnt/boot/refind_linux.conf ]]; then
+        ok "refind_linux.conf found"
+    else
+        fail "refind_linux.conf missing — kernel options not set"
     fi
 fi
 
@@ -349,7 +383,7 @@ else
     fail "Locale may not be configured correctly"
 fi
 
-# Enabled services (now including systemd-timesyncd)
+# Enabled services
 for _svc in NetworkManager fstrim.timer systemd-timesyncd; do
     if arch-chroot /mnt systemctl is-enabled "$_svc" &>/dev/null; then
         ok "Service enabled: $_svc"

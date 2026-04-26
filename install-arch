@@ -147,7 +147,7 @@ mkfs.btrfs -f "$LINUX_PART"
 # Btrfs subvolumes
 info "Creating Btrfs subvolumes..."
 mount "$LINUX_PART" /mnt
-for _sv in @ @home @var_log @var_cache @var_lib; do
+for _sv in @ @home @var_log @var_cache; do
     btrfs subvolume create "/mnt/$_sv"
     ok "Subvolume $_sv created"
 done
@@ -171,17 +171,16 @@ fi
 mount -o "${_OPTS},subvol=@" "$LINUX_PART" /mnt
 
 if [[ "$BOOTLOADER" == "grub" ]]; then
-    mkdir -p /mnt/{boot/efi,home,var/log,var/cache,var/lib,tmp}
+    mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp}
     mount "$EFI_PART" /mnt/boot/efi
 else
-    mkdir -p /mnt/{boot,home,var/log,var/cache,var/lib,tmp}
+    mkdir -p /mnt/{boot,home,var/log,var/cache,tmp}
     mount "$EFI_PART" /mnt/boot
 fi
 
 mount -o "${_OPTS},subvol=@home" "$LINUX_PART" /mnt/home
 mount -o "${_OPTS_NOCOW},subvol=@var_log" "$LINUX_PART" /mnt/var/log
 mount -o "${_OPTS_NOCOW},subvol=@var_cache" "$LINUX_PART" /mnt/var/cache
-mount -o "${_OPTS_NOCOW},subvol=@var_lib" "$LINUX_PART" /mnt/var/lib
 
 # Base install
 info "Running pacstrap (this will take a while)..."
@@ -202,7 +201,6 @@ pacstrap -K /mnt \
 info "Generating fstab..."
 genfstab -U /mnt >/mnt/etc/fstab
 
-# Tambahkan tmpfs untuk /tmp 
 echo "tmpfs /tmp tmpfs defaults,nosuid,nodev,size=4G 0 0" >>/mnt/etc/fstab
 ok "fstab written (including tmpfs /tmp)"
 

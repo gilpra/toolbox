@@ -3,10 +3,10 @@
 set -euo pipefail
 
 if ! grep -q "^\[multilib\]$" /etc/pacman.conf; then
-  echo
-  echo "Enable multilib..."
-  sudo cp /etc/pacman.conf /etc/pacman.conf.bak
-  sudo sed -i '/^#\[multilib\]/,/^#Include/s/^#//' /etc/pacman.conf
+    echo
+    echo "Enable multilib..."
+    sudo cp /etc/pacman.conf /etc/pacman.conf.bak
+    sudo sed -i '/^#\[multilib\]/,/^#Include/s/^#//' /etc/pacman.conf
 fi
 sudo pacman -Syu --noconfirm
 
@@ -15,13 +15,16 @@ echo "Installing intel package..."
 sudo pacman -S --noconfirm --needed mesa vulkan-intel intel-media-driver intel-ucode
 
 echo
-echo "Installing lib32 package..."
-sudo pacman -S --noconfirm --needed lib32-mesa lib32-vulkan-intel lib32-vulkan-mesa-layers lib32-freetype2
-
-echo
 echo "Optimization GRUB..."
 sudo sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="nowatchdog zswap.enabled=0 loglevel=3 quiet"/' /etc/default/grub
 sudo grub-mkconfig -o /boot/grub/grub.cfg
+
+echo
+echo "Enable ntsync..."
+sudo modprobe ntsync
+echo "ntsync" | sudo tee /etc/modules-load.d/ntsync.conf
+echo 'KERNEL=="ntsync", TAG+="uaccess"' | sudo tee /etc/udev/rules.d/99-ntsync.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger
 
 echo
 echo "Installing zram..."

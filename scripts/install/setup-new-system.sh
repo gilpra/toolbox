@@ -44,3 +44,19 @@ echo "Setup neovim with dotfiles..."
 sudo pacman -S --needed neovim tree-sitter-cli
 rm -rf ~/.config/nvim
 git clone https://github.com/garpra/nvim.git ~/.config/nvim
+
+if ! command -v yay >/dev/null 2>&1; then
+    echo "Installing yay..."
+
+    sudo pacman -S --needed git base-devel
+
+    tmpdir=$(mktemp -d)
+
+    git clone https://aur.archlinux.org/yay.git "$tmpdir/yay"
+
+    cd "$tmpdir/yay"
+    makepkg -si
+
+    cd
+    rm -rf "$tmpdir"
+fi

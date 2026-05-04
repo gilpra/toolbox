@@ -33,3 +33,9 @@ chsh -s "$(command -v fish)"
 
 echo "Setup ssh for Github..."
 ssh-keygen -t ed25519 -C "garpra@github"
+
+echo "Install npm with nvm..."
+sudo pacman -S --needed fisher
+fish -c "fisher install jorgebucaran/nvm.fish"
+fish -c "nvm install lts"
+fish -c "set -U nvm_default_version lts"

@@ -39,3 +39,8 @@ sudo pacman -S --needed fisher
 fish -c "fisher install jorgebucaran/nvm.fish"
 fish -c "nvm install lts"
 fish -c "set -U nvm_default_version lts"
+
+echo "Setup neovim with dotfiles..."
+sudo pacman -S --needed neovim tree-sitter-cli
+rm -rf ~/.config/nvim
+git clone https://github.com/garpra/nvim.git ~/.config/nvim

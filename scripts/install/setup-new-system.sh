@@ -30,3 +30,6 @@ sudo pacman -S --needed fish ripgrep fzf less jq inxi openssh noto-fonts noto-fo
 
 echo "Setup fish shell.."
 chsh -s "$(command -v fish)"
+
+echo "Setup ssh for Github..."
+ssh-keygen -t ed25519 -C "garpra@github"

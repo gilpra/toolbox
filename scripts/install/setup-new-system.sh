@@ -24,3 +24,9 @@ if ! nm-online -q; then
         echo "Failed to connect"
     fi
 fi
+
+echo "Installing package..."
+sudo pacman -S --needed fish ripgrep fzf less jq inxi openssh noto-fonts noto-fonts-emoji
+
+echo "Setup fish shell.."
+chsh -s "$(command -v fish)"

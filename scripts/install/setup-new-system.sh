@@ -65,3 +65,6 @@ echo "Install sway dotfiles..."
 rm -rf ~/.dotfiles/sway-dots
 git clone https://github.com/garpra/sway-dots ~/.dotfiles/sway-dots
 bash ~/.dotfiles/sway-dots/setup.sh
+
+echo "Installing firefox..."
+sudo pacman -S --needed firefox

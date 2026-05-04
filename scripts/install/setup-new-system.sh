@@ -60,3 +60,8 @@ if ! command -v yay >/dev/null 2>&1; then
     cd
     rm -rf "$tmpdir"
 fi
+
+echo "Install sway dotfiles..."
+rm -rf ~/.dotfiles/sway-dots
+git clone https://github.com/garpra/sway-dots ~/.dotfiles/sway-dots
+bash ~/.dotfiles/sway-dots/setup.sh

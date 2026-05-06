@@ -27,6 +27,23 @@ echo 'KERNEL=="ntsync", TAG+="uaccess"' | sudo tee /etc/udev/rules.d/99-ntsync.r
 sudo udevadm control --reload-rules && sudo udevadm trigger
 
 echo
+echo "Installing additional gaming package..."
+sudo pacman -S --noconfirm --needed gamemode gamescope zenity
+tee ~/.config/gamemode.ini >/dev/null <<EOF
+[general]
+renice=10
+inhibit_screensaver=1
+
+[cpu]
+park_cores=no
+pin_cores=yes
+
+[custom]
+start=powerprofilesctl set performance
+end=powerprofilesctl set balanced
+EOF
+
+echo
 echo "Installing zram..."
 sudo pacman -S --noconfirm --needed zram-generator
 

@@ -192,7 +192,8 @@ pacstrap -K /mnt \
     base base-devel \
     linux-zen linux-zen-headers \
     linux-firmware btrfs-progs \
-    sudo git networkmanager \
+    sudo git networkmanager iwd \
+    intel-ucode \
     pipewire pipewire-pulse pipewire-jack pipewire-alsa wireplumber \
     sof-firmware \
     "${_BOOTLOADER_PKGS[@]}"
@@ -255,6 +256,12 @@ set -Eeuo pipefail
 echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/99_wheel
 chmod 440 /etc/sudoers.d/99_wheel
 
+mkdir -p /etc/NetworkManager/conf.d
+cat > /etc/NetworkManager/conf.d/wifi_backend.conf <<NM
+[device]
+wifi.backend=iwd
+NM
+
 systemctl enable NetworkManager
 systemctl enable systemd-timesyncd
 
@@ -276,6 +283,7 @@ LOADER
   cat > /boot/loader/entries/arch.conf <<ENTRY
 title   Arch Linux (linux-zen)
 linux   /vmlinuz-linux-zen
+initrd  /intel-ucode.img
 initrd  /initramfs-linux-zen.img
 options root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw
 ENTRY
@@ -283,6 +291,7 @@ ENTRY
   cat > /boot/loader/entries/arch-fallback.conf <<ENTRY
 title   Arch Linux (linux-zen, fallback)
 linux   /vmlinuz-linux-zen
+initrd  /intel-ucode.img
 initrd  /initramfs-linux-zen-fallback.img
 options root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw
 ENTRY
@@ -294,7 +303,7 @@ else
   cat > /boot/refind_linux.conf <<REFIND
 "Boot default"  "root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw quiet"
 "Boot verbose"  "root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw"
-"Boot fallback" "root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw initrd=initramfs-linux-zen-fallback.img"
+"Boot fallback" "root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw initrd=intel-ucode.img initrd=initramfs-linux-zen-fallback.img"
 REFIND
 fi
 EOF
@@ -363,11 +372,23 @@ else
     fail "Missing initramfs: $_img"
 fi
 
+if [[ -f /mnt/boot/intel-ucode.img ]]; then
+    ok "Intel microcode present"
+else
+    fail "intel-ucode.img missing"
+fi
+
 # User exists
 if arch-chroot /mnt id "$USERNAME" &>/dev/null; then
     ok "User '$USERNAME' exists"
 else
     fail "User '$USERNAME' not found in chroot"
+fi
+
+if [[ -f /mnt/etc/NetworkManager/conf.d/wifi_backend.conf ]]; then
+    ok "NetworkManager iwd backend configured"
+else
+    fail "wifi_backend.conf missing"
 fi
 
 # Locale generated
@@ -401,7 +422,7 @@ else
 fi
 
 # Subvolumes
-for _sv in @ @home @var_log @var_cache @var_lib; do
+for _sv in @ @home @var_log @var_cache; do
     if btrfs subvolume list /mnt | grep -q "path ${_sv}$"; then
         ok "Subvolume present: $_sv"
     else

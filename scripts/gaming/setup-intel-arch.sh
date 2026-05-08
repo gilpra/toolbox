@@ -36,12 +36,13 @@ inhibit_screensaver=1
 
 [cpu]
 park_cores=no
-pin_cores=yes
+pin_cores=no
 
 [custom]
 start=powerprofilesctl set performance
 end=powerprofilesctl set balanced
 EOF
+sudo gpasswd -a "$(logname)" gamemode
 
 echo
 echo "Installing zram..."

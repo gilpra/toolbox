@@ -44,7 +44,7 @@ FONT_LOCATE="$FONT_DIR/$FONT_FILE"
 if [ ! -f "$FONT_LOCATE" ]; then
     echo
     echo "Download japanese font..."
-    curl -fL -o "$FONT_LOCATE" "https://github.com/garpra/assets-repo/raw/main/assets/fonts/$FONT_FILE"
+    curl -fL -o "$FONT_LOCATE" "https://github.com/gilpra/assets-repo/raw/main/assets/fonts/$FONT_FILE"
 else
     echo "Font already exists, skipping download."
 fi

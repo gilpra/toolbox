@@ -70,4 +70,5 @@ if ((sc < 0 || sc >= "${#files[@]}")); then
     exit 1
 fi
 
+clear
 bash -- ${files[sc]}

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-
 set -Eeuo pipefail
 
 # Helpers
@@ -7,215 +6,341 @@ die() {
     echo "ERROR: $*" >&2
     exit 1
 }
+
 info() {
     echo
     echo "==> $*"
 }
-ok() { echo "  [OK] $*"; }
+
+ok() {
+    echo "  [OK] $*"
+}
+
 fail() {
     echo "  [FAIL] $*" >&2
     CHECKS_FAILED=1
 }
+
 confirm() {
+    local _ans
     read -r -p "$1 [y/N] " _ans
     [[ "${_ans,,}" == "y" ]] || die "Aborted by user."
 }
 
-# Pre-flight: check required tools
-for _cmd in cfdisk mkfs.fat mkfs.btrfs pacstrap arch-chroot genfstab reflector; do
-    command -v "$_cmd" &>/dev/null || die "Required tool '$_cmd' not found. Are you running from Arch ISO?"
+[[ $EUID -eq 0 ]] || die "This script must be run as root."
+
+for _cmd in \
+    cfdisk \
+    lsblk \
+    findmnt \
+    btrfs \
+    mkfs.fat \
+    mkfs.btrfs \
+    pacstrap \
+    arch-chroot \
+    genfstab \
+    reflector; do
+    command -v "$_cmd" &>/dev/null ||
+        die "Required tool '$_cmd' not found. Are you running from Arch ISO?"
 done
 
-# Optimize mirrorlist with reflector before pacstrap
+# Mirrorlist
 info "Optimizing mirrorlist with reflector..."
+
 echo "  Fetching fastest mirrors (this may take ~30s)..."
-reflector \
+
+if reflector \
     --latest 10 \
     --protocol https \
     --country Indonesia,Singapore \
     --completion-percent 100 \
     --sort rate \
-    --save /etc/pacman.d/mirrorlist && ok "Mirrorlist updated" || {
+    --save /etc/pacman.d/mirrorlist; then
+    ok "Mirrorlist updated"
+else
     echo "  [WARN] reflector failed — continuing with existing mirrorlist"
-}
+fi
 
 # Partitioning
 info "Partition setup"
+
 read -r -p "  Enter disk device (e.g. /dev/nvme0n1): " DISK
-[[ -b "$DISK" ]] || die "Disk '$DISK' not found"
+
+[[ -b "$DISK" ]] ||
+    die "Disk '$DISK' not found"
+
 cfdisk "$DISK"
 
 read -r -p "  Enter EFI partition (e.g. /dev/nvme0n1p1): " EFI_PART
 read -r -p "  Enter Linux root partition (e.g. /dev/nvme0n1p2): " LINUX_PART
-[[ -b "$EFI_PART" ]] || die "EFI partition '$EFI_PART' not found"
-[[ -b "$LINUX_PART" ]] || die "Linux partition '$LINUX_PART' not found"
 
-# Validate EFI partition size (minimum 100MB)
+[[ -b "$EFI_PART" ]] ||
+    die "EFI partition '$EFI_PART' not found"
+
+[[ -b "$LINUX_PART" ]] ||
+    die "Linux partition '$LINUX_PART' not found"
+
+[[ "$EFI_PART" != "$LINUX_PART" ]] ||
+    die "EFI and Linux partitions must be different"
+
+# EFI validation
 _efi_size=$(lsblk -b -n -o SIZE "$EFI_PART" 2>/dev/null)
-[[ "$_efi_size" -ge 104857600 ]] || die "EFI partition is too small (< 100MB), recommended 300MB+"
 
-# System info
+[[ "$_efi_size" =~ ^[0-9]+$ ]] ||
+    die "Could not determine EFI partition size"
+
+[[ "$_efi_size" -ge 104857600 ]] ||
+    die "EFI partition is too small (<100 MiB). 300 MiB+ recommended."
+
+_efi_type=$(lsblk -n -o PARTTYPE "$EFI_PART" 2>/dev/null || true)
+
+[[ "$_efi_type" == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" ]] ||
+    die "'$EFI_PART' is not an EFI System Partition"
+
+# System configuration
 info "System configuration"
+
 read -r -p "  Hostname: " SYS_HOSTNAME
+
 [[ "$SYS_HOSTNAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]] ||
     die "Invalid hostname '$SYS_HOSTNAME'"
+
 read -r -p "  Timezone (e.g. Asia/Jakarta): " TIMEZONE
-[[ -f "/usr/share/zoneinfo/$TIMEZONE" ]] || die "Invalid timezone '$TIMEZONE'"
+
+[[ -f "/usr/share/zoneinfo/$TIMEZONE" ]] ||
+    die "Invalid timezone '$TIMEZONE'"
 
 read -r -p "  Username: " USERNAME
-[[ "$USERNAME" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "Invalid username '$USERNAME'"
 
+[[ "$USERNAME" =~ ^[a-z_][a-z0-9_-]*$ ]] ||
+    die "Invalid username '$USERNAME'"
+
+# Root password
 while true; do
     read -r -s -p "  Root password: " ROOT_PASS
     echo
+
     if [[ -z "$ROOT_PASS" ]]; then
         echo "  [!] Password cannot be empty, try again."
         continue
     fi
+
     read -r -s -p "  Confirm root password: " ROOT_PASS2
     echo
+
     if [[ "$ROOT_PASS" == "$ROOT_PASS2" ]]; then
         break
     fi
+
     echo "  [!] Passwords do not match, try again."
 done
 
+# User password
 while true; do
     read -r -s -p "  Password for $USERNAME: " USER_PASS
     echo
+
     if [[ -z "$USER_PASS" ]]; then
         echo "  [!] Password cannot be empty, try again."
         continue
     fi
+
     read -r -s -p "  Confirm password for $USERNAME: " USER_PASS2
     echo
+
     if [[ "$USER_PASS" == "$USER_PASS2" ]]; then
         break
     fi
+
     echo "  [!] Passwords do not match, try again."
 done
 
-# Bootloader — GRUB only
-BOOTLOADER="grub"
+# Bootloader
+BOOTLOADER="GRUB"
 
-# Final confirmation
+info "Installation summary"
+
+echo "  ┌─────────────────────────────────────────┐"
+echo "  │  Installation summary                   │"
+echo "  ├─────────────────────────────────────────┤"
+
+printf "  │  Disk       : %-25s │\n" "$DISK"
+printf "  │  EFI        : %-25s │\n" "$EFI_PART"
+printf "  │  Linux      : %-25s │\n" "$LINUX_PART"
+printf "  │  Hostname   : %-25s │\n" "$SYS_HOSTNAME"
+printf "  │  Timezone   : %-25s │\n" "$TIMEZONE"
+printf "  │  Username   : %-25s │\n" "$USERNAME"
+printf "  │  Bootloader : %-25s │\n" "$BOOTLOADER"
+
+echo "  │  Subvolumes : @ @home @cache @log │"
+echo "  └─────────────────────────────────────────┘"
+
 echo
-echo "  ┌─────────────────────────────────────┐"
-echo "  │  Installation summary               │"
-echo "  ├─────────────────────────────────────┤"
-printf "  │  Disk     : %-23s │\n" "$DISK"
-printf "  │  EFI      : %-23s │\n" "$EFI_PART"
-printf "  │  Linux    : %-23s │\n" "$LINUX_PART"
-printf "  │  Hostname : %-23s │\n" "$SYS_HOSTNAME"
-printf "  │  Timezone : %-23s │\n" "$TIMEZONE"
-printf "  │  Username : %-23s │\n" "$USERNAME"
-printf "  │  Bootloader: %-22s │\n" "GRUB"
-echo "  └─────────────────────────────────────┘"
+echo "  Mount layout:"
+echo "    @       -> /"
+echo "    @home   -> /home"
+echo "    @cache  -> /var/cache"
+echo "    @log    -> /var/log"
 echo
-confirm "WARNING: All data on $EFI_PART and $LINUX_PART will be DESTROYED. Continue?"
+
+confirm \
+    "WARNING: All data on $EFI_PART and $LINUX_PART will be DESTROYED. Continue?"
 
 # Format
 info "Formatting partitions..."
+
 mkfs.fat -F32 "$EFI_PART"
 mkfs.btrfs -f "$LINUX_PART"
 
 # Btrfs subvolumes
 info "Creating Btrfs subvolumes..."
+
 mount "$LINUX_PART" /mnt
-for _sv in @ @home @var_log @var_cache; do
+
+for _sv in @ @home @cache @log; do
     btrfs subvolume create "/mnt/$_sv"
     ok "Subvolume $_sv created"
 done
+
 umount /mnt
 
-# Mount
-info "Mounting subvolumes..."
+# Btrfs mount options
+info "Mounting Btrfs subvolumes..."
 
-# Detect if disk is SSD or HDD
-_rotational=$(cat "/sys/block/$(lsblk -no PKNAME "$LINUX_PART")/queue/rotational" 2>/dev/null || echo "0")
-if [[ "$_rotational" == "0" ]]; then
-    _OPTS="noatime,compress=zstd:1,ssd,discard=async,commit=120"
-    ok "Detected SSD — applying SSD-optimized mount options"
-else
-    _OPTS="noatime,compress=zstd:1,autodefrag,commit=120"
-    ok "Detected HDD — applying HDD-compatible mount options"
-fi
+_OPTS="noatime,compress=zstd"
 
-mount -o "${_OPTS},subvol=@" "$LINUX_PART" /mnt
+# Root
+mount \
+    -o "${_OPTS},subvol=@" \
+    "$LINUX_PART" \
+    /mnt
 
-mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp}
+# Mountpoint creation
+mkdir -p \
+    /mnt/boot/efi \
+    /mnt/home \
+    /mnt/var/cache \
+    /mnt/var/log
+
+# EFI
 mount "$EFI_PART" /mnt/boot/efi
 
-mount -o "${_OPTS},subvol=@home" "$LINUX_PART" /mnt/home
-mount -o "${_OPTS},subvol=@var_log" "$LINUX_PART" /mnt/var/log
-mount -o "${_OPTS},subvol=@var_cache" "$LINUX_PART" /mnt/var/cache
+# Home
+mount \
+    -o "${_OPTS},subvol=@home" \
+    "$LINUX_PART" \
+    /mnt/home
 
-# Base install
+# Cache
+mount \
+    -o "${_OPTS},subvol=@cache" \
+    "$LINUX_PART" \
+    /mnt/var/cache
+
+# Log
+mount \
+    -o "${_OPTS},subvol=@log" \
+    "$LINUX_PART" \
+    /mnt/var/log
+
+# Base installation
 info "Running pacstrap (this will take a while)..."
+
 pacstrap -K /mnt \
-    base base-devel \
-    linux-zen linux-zen-headers \
-    linux-firmware btrfs-progs \
-    sudo git networkmanager iwd \
+    base \
+    base-devel \
+    linux-zen \
+    linux-zen-headers \
+    linux-firmware \
+    btrfs-progs \
+    sudo \
+    git \
+    networkmanager \
+    iwd \
     intel-ucode \
-    pipewire pipewire-pulse pipewire-jack pipewire-alsa wireplumber \
+    pipewire \
+    pipewire-pulse \
+    pipewire-jack \
+    pipewire-alsa \
+    wireplumber \
     sof-firmware \
-    grub efibootmgr
+    grub \
+    efibootmgr
 
 # fstab
 info "Generating fstab..."
+
 genfstab -U /mnt >/mnt/etc/fstab
 
-echo "tmpfs /tmp tmpfs defaults,nosuid,nodev,size=25% 0 0" >>/mnt/etc/fstab
-ok "fstab written (including tmpfs /tmp)"
+ok "fstab generated"
 
-# chroot block 1 — locale, hostname, initramfs
-info "Configuring locale, hostname, initramfs..."
-arch-chroot /mnt /bin/bash <<EOF || die "chroot [locale/host/initramfs] failed"
+# chroot: locale / hostname / initramfs
+info "Configuring locale, hostname and initramfs..."
+
+arch-chroot /mnt /bin/bash <<EOF
 set -Eeuo pipefail
 
 ln -sf "/usr/share/zoneinfo/${TIMEZONE}" /etc/localtime
+
 hwclock --systohc
 
-sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+sed -i \
+    's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' \
+    /etc/locale.gen
+
 locale-gen
+
 echo "LANG=en_US.UTF-8" > /etc/locale.conf
 
 echo "${SYS_HOSTNAME}" > /etc/hostname
-{
-    echo "127.0.0.1   localhost"
-    echo "::1         localhost"
-    echo "127.0.1.1   ${SYS_HOSTNAME}.localdomain ${SYS_HOSTNAME}"
-} > /etc/hosts
+
+cat > /etc/hosts <<HOSTS
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   ${SYS_HOSTNAME}.localdomain ${SYS_HOSTNAME}
+HOSTS
 
 echo "KEYMAP=us" > /etc/vconsole.conf
 
-mkinitcpio -P
 EOF
 
-# chroot block 2 — user creation
+# Create user
 info "Creating user '$USERNAME'..."
-arch-chroot /mnt /bin/bash <<EOF || die "chroot [useradd] failed"
+
+arch-chroot /mnt /bin/bash <<EOF
 set -Eeuo pipefail
-useradd -m -G wheel -s /bin/bash "${USERNAME}"
+
+useradd \
+    -m \
+    -G wheel \
+    -s /bin/bash \
+    "${USERNAME}"
 EOF
 
-# Passwords — piped from outside
+# Set passwords
 info "Setting passwords..."
-printf 'root:%s\n' "$ROOT_PASS" | arch-chroot /mnt chpasswd ||
+
+printf 'root:%s\n' "$ROOT_PASS" |
+    arch-chroot /mnt chpasswd ||
     die "Failed to set root password"
-printf '%s:%s\n' "$USERNAME" "$USER_PASS" | arch-chroot /mnt chpasswd ||
+
+printf '%s:%s\n' "$USERNAME" "$USER_PASS" |
+    arch-chroot /mnt chpasswd ||
     die "Failed to set user password"
 
-# chroot block 3 — sudo, services, bootloader
-info "Configuring sudo, services, bootloader..."
-arch-chroot /mnt /bin/bash <<EOF || die "chroot [services/bootloader] failed"
+# sudo / NetworkManager / bootloader
+info "Configuring sudo, networking and bootloader..."
+
+arch-chroot /mnt /bin/bash <<EOF
 set -Eeuo pipefail
 
+# sudo
 echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/99_wheel
 chmod 440 /etc/sudoers.d/99_wheel
 
+# NetworkManager using iwd as Wi-Fi backend
 mkdir -p /etc/NetworkManager/conf.d
+
 cat > /etc/NetworkManager/conf.d/wifi_backend.conf <<NM
 [device]
 wifi.backend=iwd
@@ -223,128 +348,197 @@ NM
 
 systemctl enable NetworkManager
 systemctl enable systemd-timesyncd
+systemctl enable fstrim.timer
 
-grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
-grub-mkconfig -o /boot/grub/grub.cfg
+# GRUB UEFI
+grub-install \
+    --target=x86_64-efi \
+    --efi-directory=/boot/efi \
+    --bootloader-id=GRUB
+
+grub-mkconfig \
+    -o /boot/grub/grub.cfg
 EOF
 
-# Cleanup
-unset ROOT_PASS ROOT_PASS2 USER_PASS USER_PASS2
+# Cleanup sensitive variables
+unset \
+    ROOT_PASS \
+    ROOT_PASS2 \
+    USER_PASS \
+    USER_PASS2
 
 # Post-install verification
 info "Running post-install checks..."
+
 CHECKS_FAILED=0
 
-# fstab validity
+# fstab
 if findmnt --verify --tab-file /mnt/etc/fstab &>/dev/null; then
     ok "fstab is valid"
 else
-    fail "fstab validation failed — run 'findmnt --verify' after reboot"
+    fail "fstab validation failed"
 fi
 
-# EFI bootloader binary & config
+# GRUB EFI
 if [[ -f /mnt/boot/efi/EFI/GRUB/grubx64.efi ]]; then
     ok "GRUB EFI binary found"
 else
-    fail "GRUB EFI binary missing at /boot/efi/EFI/GRUB/grubx64.efi"
+    fail "GRUB EFI binary missing"
 fi
 
+# GRUB config
 if [[ -f /mnt/boot/grub/grub.cfg ]]; then
     ok "grub.cfg found"
 else
-    fail "grub.cfg missing — grub-mkconfig may have failed"
+    fail "grub.cfg missing"
 fi
 
 # Initramfs
-_img=/mnt/boot/initramfs-linux-zen.img
-if [[ -f "$_img" ]]; then
-    ok "Initramfs present: $(basename "$_img")"
+_INITRAMFS="/mnt/boot/initramfs-linux-zen.img"
+
+if [[ -f "$_INITRAMFS" ]]; then
+    ok "Initramfs present: $(basename "$_INITRAMFS")"
 else
-    fail "Missing initramfs: $_img"
+    fail "Missing initramfs: $_INITRAMFS"
 fi
 
+# Intel microcode
 if [[ -f /mnt/boot/intel-ucode.img ]]; then
     ok "Intel microcode present"
 else
     fail "intel-ucode.img missing"
 fi
 
-# User exists
+# User
 if arch-chroot /mnt id "$USERNAME" &>/dev/null; then
     ok "User '$USERNAME' exists"
 else
-    fail "User '$USERNAME' not found in chroot"
+    fail "User '$USERNAME' not found"
 fi
 
+# NetworkManager iwd backend
 if [[ -f /mnt/etc/NetworkManager/conf.d/wifi_backend.conf ]]; then
     ok "NetworkManager iwd backend configured"
 else
-    fail "wifi_backend.conf missing"
+    fail "NetworkManager iwd backend configuration missing"
 fi
 
-# Locale generated
-if grep -q "^LANG=en_US.UTF-8" /mnt/etc/locale.conf 2>/dev/null; then
+# Locale
+if grep -q '^LANG=en_US.UTF-8' /mnt/etc/locale.conf; then
     ok "Locale en_US.UTF-8 configured"
 else
     fail "Locale may not be configured correctly"
 fi
 
-# Enabled services
-for _svc in NetworkManager systemd-timesyncd; do
+# Services
+for _svc in NetworkManager systemd-timesyncd fstrim.timer; do
+
     if arch-chroot /mnt systemctl is-enabled "$_svc" &>/dev/null; then
         ok "Service enabled: $_svc"
     else
         fail "Service NOT enabled: $_svc"
     fi
+
 done
 
 # Hostname
 if [[ "$(cat /mnt/etc/hostname 2>/dev/null)" == "$SYS_HOSTNAME" ]]; then
     ok "Hostname: $SYS_HOSTNAME"
 else
-    fail "Hostname mismatch in /etc/hostname"
+    fail "Hostname mismatch"
 fi
 
-# /etc/hosts
-if grep -q "127.0.1.1" /mnt/etc/hosts 2>/dev/null; then
+# hosts
+if grep -q '127.0.1.1' /mnt/etc/hosts; then
     ok "/etc/hosts has 127.0.1.1 entry"
 else
     fail "/etc/hosts missing 127.0.1.1 entry"
 fi
 
-# Subvolumes
-for _sv in @ @home @var_log @var_cache; do
-    if btrfs subvolume list /mnt | grep -q "path ${_sv}$"; then
+# Btrfs subvolume verification
+info "Verifying Btrfs subvolumes..."
+
+# The currently mounted /mnt is @ itself.
+if btrfs subvolume show /mnt &>/dev/null; then
+
+    _ROOT_PATH=$(
+        btrfs subvolume show /mnt |
+            awk -F': ' '/^[[:space:]]*Name:/ {print $2; exit}'
+    )
+
+    if [[ "$_ROOT_PATH" == "@" ]]; then
+        ok "Root subvolume: @"
+    else
+        fail "Root subvolume is not @"
+    fi
+
+else
+    fail "Could not inspect root Btrfs subvolume"
+fi
+
+# Child subvolumes
+for _sv in @home @cache @log; do
+
+    if btrfs subvolume list /mnt |
+        grep -Eq "path ${_sv}$"; then
         ok "Subvolume present: $_sv"
     else
         fail "Subvolume missing: $_sv"
     fi
+
 done
 
-# tmpfs /tmp entry in fstab
-if grep -q "^tmpfs /tmp" /mnt/etc/fstab 2>/dev/null; then
-    ok "tmpfs /tmp entry present in fstab"
-else
-    fail "tmpfs /tmp missing from fstab"
-fi
+# Mount verification
+info "Verifying mount points..."
 
-# Final result
+for _mnt in / /home /var/cache /var/log /boot/efi; do
+
+    if findmnt -n -T "/mnt${_mnt}" &>/dev/null; then
+        ok "Mount present: ${_mnt}"
+    else
+        fail "Mount missing: ${_mnt}"
+    fi
+
+done
+
 echo
+
 if [[ "$CHECKS_FAILED" -eq 0 ]]; then
+
     echo "  ✔  All checks passed."
-    echo "  ✔  Installation complete — reboot and login as: $USERNAME"
+    echo "  ✔  Installation complete."
     echo
-    echo "  NOTE: Setelah login, jalankan perintah berikut untuk setup Snapper:"
-    echo "        sudo pacman -S snapper"
-    echo "        sudo snapper -c root create-config /"
+    echo "  Login user: $USERNAME"
     echo
-    echo "  NOTE: Untuk Steam/game files, disable CoW setelah install:"
-    echo "        chattr +C ~/.steam ~/.local/share/Steam"
+    echo "  Next step after first boot:"
     echo
-    umount -R /mnt && ok "Filesystems unmounted" || echo "  [WARN] umount failed — run 'umount -R /mnt' manually before rebooting"
+    echo "    sudo pacman -S snapper"
+    echo "    sudo snapper -c root create-config /"
+    echo
+    echo "  Snapper will create /.snapshots."
+    echo
+    echo "  This installer intentionally does NOT apply:"
+    echo "    - commit=120"
+    echo "    - autodefrag"
+    echo "    - custom tmpfs /tmp"
+    echo "    - NOCOW for Steam"
+    echo
+    echo "  Add those only if you have a measured reason."
+    echo
+
+    if umount -R /mnt; then
+        ok "Filesystems unmounted"
+    else
+        echo "  [WARN] Could not unmount /mnt completely."
+        echo "         Run: umount -R /mnt"
+    fi
+
 else
+
     echo "  ✘  Installation finished with warnings."
     echo "     Review [FAIL] items above before rebooting."
     echo "     Run 'umount -R /mnt' manually before rebooting."
+
 fi
+
 echo

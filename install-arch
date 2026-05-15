@@ -443,7 +443,7 @@ info "Running post-install checks..."
 CHECKS_FAILED=0
 
 # fstab
-if findmnt --verify --tab-file /mnt/etc/fstab &>/dev/null; then
+if arch-chroot /mnt findmnt --verify &>/dev/null; then
     ok "fstab is valid"
 else
     fail "fstab validation failed"
@@ -542,7 +542,8 @@ if btrfs subvolume show /mnt &>/dev/null; then
 
     _ROOT_PATH=$(
         btrfs subvolume show /mnt |
-            awk -F': ' '/^[[:space:]]*Name:/ {print $2; exit}'
+            awk -F': ' '/^[[:space:]]*Name:/ {print $2; exit}' |
+            xargs
     )
 
     if [[ "$_ROOT_PATH" == "@" ]]; then

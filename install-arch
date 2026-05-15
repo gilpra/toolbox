@@ -34,15 +34,41 @@ for _cmd in \
     lsblk \
     findmnt \
     btrfs \
+    wipefs \
+    partprobe \
     mkfs.fat \
     mkfs.btrfs \
     pacstrap \
     arch-chroot \
     genfstab \
-    reflector; do
+    reflector \
+    curl \
+    timedatectl; do
     command -v "$_cmd" &>/dev/null ||
         die "Required tool '$_cmd' not found. Are you running from Arch ISO?"
 done
+
+# Time sync (fixes mirror TLS / signature verification failures caused by
+# a wrong system clock on the live ISO)
+info "Syncing system clock..."
+
+timedatectl set-ntp true
+sleep 2
+
+if timedatectl show -p NTPSynchronized --value | grep -q yes; then
+    ok "Clock synchronized via NTP"
+else
+    echo "  [WARN] NTP sync not confirmed yet — continuing anyway"
+fi
+
+# Network check
+info "Checking internet connection..."
+
+if curl -fsS --max-time 5 https://archlinux.org >/dev/null 2>&1; then
+    ok "Internet connection OK"
+else
+    die "No internet connection. Connect first (e.g. 'iwctl' for Wi-Fi) and re-run."
+fi
 
 # Mirrorlist
 info "Optimizing mirrorlist with reflector..."
@@ -64,12 +90,28 @@ fi
 # Partitioning
 info "Partition setup"
 
+# Detect Intel VMD (Volume Management Device) — common on Acer/Dell laptops
+# with RAID mode enabled in BIOS. When active, NVMe sits behind the vmd PCI
+# bridge and the 'vmd' module MUST be in the initramfs, or the installed
+# system won't find its root device at boot even though install "succeeds".
+_HAS_VMD=0
+if lsmod | grep -q '^vmd\b'; then
+    _HAS_VMD=1
+    echo "  [INFO] Intel VMD detected — 'vmd' module will be added to initramfs"
+fi
+
 read -r -p "  Enter disk device (e.g. /dev/nvme0n1): " DISK
 
 [[ -b "$DISK" ]] ||
     die "Disk '$DISK' not found"
 
 cfdisk "$DISK"
+
+# Make sure the kernel and udev see the new partition table before we
+# start reading partition devices below (common source of false
+# "partition not found" errors right after cfdisk, especially on NVMe).
+partprobe "$DISK" 2>/dev/null || true
+udevadm settle
 
 read -r -p "  Enter EFI partition (e.g. /dev/nvme0n1p1): " EFI_PART
 read -r -p "  Enter Linux root partition (e.g. /dev/nvme0n1p2): " LINUX_PART
@@ -93,9 +135,10 @@ _efi_size=$(lsblk -b -n -o SIZE "$EFI_PART" 2>/dev/null)
     die "EFI partition is too small (<100 MiB). 300 MiB+ recommended."
 
 _efi_type=$(lsblk -n -o PARTTYPE "$EFI_PART" 2>/dev/null || true)
+_efi_type="${_efi_type,,}"
 
 [[ "$_efi_type" == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" ]] ||
-    die "'$EFI_PART' is not an EFI System Partition"
+    die "'$EFI_PART' is not an EFI System Partition (GPT required)"
 
 # System configuration
 info "System configuration"
@@ -189,6 +232,12 @@ confirm \
 # Format
 info "Formatting partitions..."
 
+# Wipe old filesystem signatures first — without this, mkfs can prompt
+# interactively on partitions that previously held a filesystem, which
+# hangs the script silently since there's no stdin to answer it.
+wipefs -a "$EFI_PART"
+wipefs -a "$LINUX_PART"
+
 mkfs.fat -F32 "$EFI_PART"
 mkfs.btrfs -f "$LINUX_PART"
 
@@ -255,6 +304,7 @@ pacstrap -K /mnt \
     btrfs-progs \
     sudo \
     git \
+    neovim \
     networkmanager \
     iwd \
     intel-ucode \
@@ -304,6 +354,25 @@ echo "KEYMAP=us" > /etc/vconsole.conf
 
 EOF
 
+# VMD fixup (Acer/Dell laptops with Intel RAID/VMD mode enabled in BIOS)
+if [[ "$_HAS_VMD" -eq 1 ]]; then
+    info "Ensuring 'vmd' module is baked into initramfs..."
+
+    arch-chroot /mnt /bin/bash <<EOF
+set -Eeuo pipefail
+
+if ! grep -qE '^MODULES=\(([^)]*\bvmd\b[^)]*)\)' /etc/mkinitcpio.conf; then
+    sed -i \
+        -E 's/^MODULES=\(([^)]*)\)/MODULES=(\1 vmd)/' \
+        /etc/mkinitcpio.conf
+fi
+
+mkinitcpio -P
+EOF
+
+    ok "vmd module confirmed in initramfs"
+fi
+
 # Create user
 info "Creating user '$USERNAME'..."
 
@@ -337,6 +406,7 @@ set -Eeuo pipefail
 # sudo
 echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/99_wheel
 chmod 440 /etc/sudoers.d/99_wheel
+visudo -cf /etc/sudoers.d/99_wheel
 
 # NetworkManager using iwd as Wi-Fi backend
 mkdir -p /etc/NetworkManager/conf.d
@@ -407,6 +477,15 @@ if [[ -f /mnt/boot/intel-ucode.img ]]; then
     ok "Intel microcode present"
 else
     fail "intel-ucode.img missing"
+fi
+
+# VMD module in initramfs (only relevant if this machine uses Intel VMD)
+if [[ "$_HAS_VMD" -eq 1 ]]; then
+    if grep -qE '^MODULES=\(([^)]*\bvmd\b[^)]*)\)' /mnt/etc/mkinitcpio.conf; then
+        ok "vmd module present in mkinitcpio.conf"
+    else
+        fail "vmd module missing from mkinitcpio.conf — system may fail to boot"
+    fi
 fi
 
 # User

@@ -2,22 +2,13 @@
 set -euo pipefail
 
 echo "Installing package..."
-sudo pacman -S --needed fish ripgrep fzf less jq inxi openssh noto-fonts noto-fonts-emoji duf
-
-echo "Setup fish shell.."
-chsh -s "$(command -v fish)"
+sudo pacman -S --needed ripgrep fzf less jq inxi openssh noto-fonts noto-fonts-emoji duf
 
 echo "Setup ssh for Github..."
-ssh-keygen -t ed25519 -C "garpra@github"
-
-echo "Install npm with nvm..."
-sudo pacman -S --needed fisher
-fish -c "fisher install jorgebucaran/nvm.fish"
-fish -c "nvm install lts"
-fish -c "set -U nvm_default_version lts"
+ssh-keygen -t ed25519
 
 echo "Setup neovim with dotfiles..."
-sudo pacman -S --needed neovim tree-sitter-cli
+sudo pacman -S --needed neovim tree-sitter-cli nodejs npm
 rm -rf ~/.config/nvim
 git clone https://github.com/gilpra/nvim.git ~/.config/nvim
 

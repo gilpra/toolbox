@@ -53,7 +53,7 @@ pacstrap -K /mnt base base-devel \
   linux-firmware btrfs-progs \
   sudo git networkmanager \
   pipewire pipewire-pulse pipewire-jack pipewire-alsa wireplumber \
-  grub efibootmgr
+  grub efibootmgr sof-firmware
 
 genfstab -U /mnt >> /mnt/etc/fstab
 

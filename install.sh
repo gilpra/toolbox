@@ -70,12 +70,6 @@ echo "LANG=en_US.UTF-8" > /etc/locale.conf
 
 echo "$HOSTNAME" > /etc/hostname
 
-# mkinitcpio: tambahkan modul btrfs (aman bila dobel)
-if ! grep -q '^MODULES=.*btrfs' /etc/mkinitcpio.conf; then
-  sed -i 's/^MODULES=(/MODULES=(btrfs /' /etc/mkinitcpio.conf
-fi
-mkinitcpio -P
-
 # === USERS & PASSWORDS ===
 useradd -m -G wheel -s /bin/bash "$USERNAME"
 printf 'root:%s\n' "$ROOT_PASS" | chpasswd

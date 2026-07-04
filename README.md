@@ -9,7 +9,7 @@ A script for a minimal Arch Linux install using the Btrfs filesystem. Perfect fo
 **Run it using the following command:**
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/garpra/toolbox/archlinux/main/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/garpra/toolbox/main/archlinux/install.sh)"
 ```
 
 > **Warning**: This script will format your disk. Make sure to back up your important data before running it..

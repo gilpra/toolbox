@@ -18,15 +18,28 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/garpra/toolbox/main/arch
 
 ## How to Use
 
-You can run each script directly. Just make sure to give it execution permissions first.:
+Clone the repository and run the TUI:
 
 ```bash
-chmod +x script-name.sh
-./script-name.sh
+git clone https://github.com/garpra/toolbox.git
+cd toolbox
+chmod +x script-runner
+./script-runner
 ```
 
-Atau jalankan langsung dengan `bash`:
+## Script Structure
 
-```bash
-bash script-name.sh
+Scripts are organized into categories. Each folder inside `scripts/` is a category, and each `.sh` file inside is a script.
+
 ```
+scripts/
+├── archlinux/
+│   ├── install.sh
+│   └── install-refind.sh
+├── gaming/
+│   └── setup-intel-arch.sh
+└── install/
+    └── aur-helper.sh
+```
+
+Adding a new category is as simple as creating a new folder. Adding a new script is as simple as dropping a `.sh` file into the appropriate folder.

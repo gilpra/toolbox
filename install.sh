@@ -31,6 +31,7 @@ info "Optimizing mirrorlist with reflector..."
 echo "  Fetching fastest mirrors (this may take ~30s)..."
 reflector \
   --age 12 \
+  --country Indonesia,Singapore \
   --protocol https \
   --sort rate \
   --save /etc/pacman.d/mirrorlist \
@@ -51,7 +52,7 @@ read -r -p "  Input your Linux System Partition  (example: /dev/nvme0n1p2): " LI
 
 # System info
 info "System configuration"
-read -r -p "  Hostname: " HOSTNAME
+read -r -p "  Hostname: " SYS_HOSTNAME
 read -r -p "  Timezone (example: Asia/Jakarta): " TIMEZONE
 [[ -f "/usr/share/zoneinfo/$TIMEZONE" ]] || die "Invalid timezone '$TIMEZONE'"
 
@@ -78,7 +79,7 @@ echo "  ├───────────────────────
 printf "  │  Disk     : %-23s │\n" "$DISK"
 printf "  │  EFI      : %-23s │\n" "$EFI_PART"
 printf "  │  Linux    : %-23s │\n" "$LINUX_PART"
-printf "  │  Hostname : %-23s │\n" "$HOSTNAME"
+printf "  │  Hostname : %-23s │\n" "$SYS_HOSTNAME"
 printf "  │  Timezone : %-23s │\n" "$TIMEZONE"
 printf "  │  Username : %-23s │\n" "$USERNAME"
 echo "  └─────────────────────────────────────┘"
@@ -101,13 +102,14 @@ umount /mnt
 
 # Mount
 info "Mounting subvolumes..."
-_OPTS="noatime,compress=zstd:3"
+_OPTS="noatime,compress=zstd:3,ssd,space_cache=v2,discard=async"
+_OPTS_NOCOW="noatime,nodatacow,ssd,space_cache=v2,discard=async"
 mount -o "${_OPTS},subvol=@" "$LINUX_PART" /mnt
-mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp,var/lib}
+mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp}
 mount -o "${_OPTS},autodefrag,subvol=@home" "$LINUX_PART" /mnt/home
-mount -o "${_OPTS},subvol=@log" "$LINUX_PART" /mnt/var/log
-mount -o "${_OPTS},subvol=@cache" "$LINUX_PART" /mnt/var/cache
-mount -o "noatime,nodatacow,nodatasum,subvol=@tmp" "$LINUX_PART" /mnt/tmp
+mount -o "${_OPTS_NOCOW},subvol=@log" "$LINUX_PART" /mnt/var/log
+mount -o "${_OPTS_NOCOW},subvol=@cache" "$LINUX_PART" /mnt/var/cache
+mount -o "${_OPTS_NOCOW},subvol=@tmp" "$LINUX_PART" /mnt/tmp
 mount "$EFI_PART" /mnt/boot/efi
 
 # Base install
@@ -137,11 +139,11 @@ sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
 locale-gen
 echo "LANG=en_US.UTF-8" > /etc/locale.conf
 
-echo "${HOSTNAME}" > /etc/hostname
+echo "${SYS_HOSTNAME}" > /etc/hostname
 {
     echo "127.0.0.1   localhost"
     echo "::1         localhost"
-    echo "127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}"
+    echo "127.0.1.1   ${SYS_HOSTNAME}.localdomain ${SYS_HOSTNAME}"
 } > /etc/hosts
 
 sed -i 's/^MODULES=(/MODULES=(btrfs /' /etc/mkinitcpio.conf
@@ -225,7 +227,7 @@ else
 fi
 
 # Locale generated
-if grep -q "^en_US.UTF-8" /mnt/etc/locale.gen 2>/dev/null; then
+if grep -q "^LANG=en_US.UTF-8" /mnt/etc/locale.conf 2>/dev/null; then
   ok "Locale en_US.UTF-8 configured"
 else
   fail "Locale may not be configured correctly"
@@ -241,8 +243,8 @@ for _svc in NetworkManager fstrim.timer systemd-timesyncd; do
 done
 
 # Hostname
-if [[ "$(cat /mnt/etc/hostname 2>/dev/null)" == "$HOSTNAME" ]]; then
-  ok "Hostname: $HOSTNAME"
+if [[ "$(cat /mnt/etc/hostname 2>/dev/null)" == "$SYS_HOSTNAME" ]]; then
+  ok "Hostname: $SYS_HOSTNAME"
 else
   fail "Hostname mismatch in /etc/hostname"
 fi
@@ -259,8 +261,10 @@ echo
 if [[ "$CHECKS_FAILED" -eq 0 ]]; then
   echo "  ✔  All checks passed."
   echo "  ✔  Installation complete — reboot and login as: $USERNAME"
+  umount -R /mnt && ok "Filesystems unmounted" || echo "  [WARN] umount failed — run 'umount -R /mnt' manually before rebooting"
 else
   echo "  ✘  Installation finished with warnings."
   echo "     Review [FAIL] items above before rebooting."
+  echo "     Run 'umount -R /mnt' manually before rebooting."
 fi
 echo

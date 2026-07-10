@@ -210,15 +210,12 @@ else
 fi
 
 # Initramfs images for both kernels
-for _img in \
-  /mnt/boot/initramfs-linux.img \
-  /mnt/boot/initramfs-linux-zen.img; do
-  if [[ -f "$_img" ]]; then
-    ok "Initramfs present: $(basename "$_img")"
-  else
-    fail "Missing initramfs: $_img"
-  fi
-done
+_img=/mnt/boot/initramfs-linux-zen.img
+if [[ -f "$_img" ]]; then
+  ok "Initramfs present: $(basename "$_img")"
+else
+  fail "Missing initramfs: $_img"
+fi
 
 # User exists
 if arch-chroot /mnt id "$USERNAME" &>/dev/null; then

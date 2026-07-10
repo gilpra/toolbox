@@ -145,6 +145,8 @@ echo "${HOSTNAME}" > /etc/hostname
 } > /etc/hosts
 
 sed -i 's/^MODULES=(/MODULES=(btrfs /' /etc/mkinitcpio.conf
+echo "KEYMAP=us" > /etc/vconsole.conf
+
 mkinitcpio -P
 EOF
 

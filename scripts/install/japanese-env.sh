@@ -10,7 +10,7 @@ if [ ! -f "$FONT_FILE" ]; then
   echo
   echo "Download japanese font..."
   curl -fL -o "$FONT_FILE" \
-    "https://github.com/gilang-arya/assets-repo/raw/main/assets/fonts/NotoSansJP-VariableFont_wght.ttf"
+    "https://github.com/garpra/assets-repo/raw/main/assets/fonts/NotoSansJP-VariableFont_wght.ttf"
 else
   echo "Font already exists, skipping download."
 fi

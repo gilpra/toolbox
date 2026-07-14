@@ -4,6 +4,7 @@ set -euo pipefail
 
 AUR_HELPER=("yay" "paru")
 
+echo
 for i in "${!AUR_HELPER[@]}"; do
   echo "$((i + 1)). ${AUR_HELPER[$i]}"
 done

@@ -148,7 +148,7 @@ mkfs.btrfs -f "$LINUX_PART"
 # @snapshots tidak dibuat — akan di-setup oleh Snapper setelah install
 info "Creating Btrfs subvolumes..."
 mount "$LINUX_PART" /mnt
-for _sv in @ @home @var_log @var_cache @var_lib; do
+for _sv in @ @home @var_log @var_cache; do
   btrfs subvolume create "/mnt/$_sv"
   ok "Subvolume $_sv created"
 done
@@ -176,17 +176,16 @@ fi
 mount -o "${_OPTS},subvol=@" "$LINUX_PART" /mnt
 
 if [[ "$BOOTLOADER" == "grub" ]]; then
-  mkdir -p /mnt/{boot/efi,home,var/log,var/cache,var/lib,tmp}
+  mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp}
   mount "$EFI_PART" /mnt/boot/efi
 else
-  mkdir -p /mnt/{boot,home,var/log,var/cache,var/lib,tmp}
+  mkdir -p /mnt/{boot,home,var/log,var/cache,tmp}
   mount "$EFI_PART" /mnt/boot
 fi
 
 mount -o "${_OPTS},subvol=@home"          "$LINUX_PART" /mnt/home
 mount -o "${_OPTS_NOCOW},subvol=@var_log"   "$LINUX_PART" /mnt/var/log
 mount -o "${_OPTS_NOCOW},subvol=@var_cache" "$LINUX_PART" /mnt/var/cache
-mount -o "${_OPTS_NOCOW},subvol=@var_lib"   "$LINUX_PART" /mnt/var/lib
 
 # Base install
 info "Running pacstrap (this will take a while)..."

@@ -16,7 +16,7 @@ sudo pacman -S --noconfirm --needed mesa vulkan-intel intel-media-driver intel-u
 
 echo
 echo "Optimization GRUB..."
-sudo sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="nowatchdog zswap.enabled=0 loglevel=3 quiet"/' /etc/default/grub
+sudo sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=3 nowatchdog intel_pstate=active i915.enable_guc=3 i915.enable_fbc=1 transparent_hugepage=madvise split_lock_detect=off zswap.enabled=0"/' /etc/default/grub
 sudo grub-mkconfig -o /boot/grub/grub.cfg
 
 echo
@@ -25,6 +25,23 @@ sudo modprobe ntsync
 echo "ntsync" | sudo tee /etc/modules-load.d/ntsync.conf
 echo 'KERNEL=="ntsync", TAG+="uaccess"' | sudo tee /etc/udev/rules.d/99-ntsync.rules
 sudo udevadm control --reload-rules && sudo udevadm trigger
+
+echo
+echo "Installing additional gaming package..."
+sudo pacman -S --noconfirm --needed gamemode gamescope zenity
+tee ~/.config/gamemode.ini >/dev/null <<EOF
+[general]
+renice=10
+inhibit_screensaver=1
+
+[cpu]
+park_cores=no
+pin_cores=yes
+
+[custom]
+start=powerprofilesctl set performance
+end=powerprofilesctl set balanced
+EOF
 
 echo
 echo "Installing zram..."

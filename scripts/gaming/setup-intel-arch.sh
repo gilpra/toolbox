@@ -12,7 +12,7 @@ sudo pacman -Syu --noconfirm
 
 echo
 echo "Installing intel package..."
-sudo pacman -S --noconfirm --needed mesa vulkan-intel intel-media-driver intel-ucode
+sudo pacman -S --noconfirm --needed mesa vulkan-intel intel-media-driver
 
 echo
 echo "Optimization GRUB..."

@@ -4,39 +4,39 @@ set -Eeuo pipefail
 
 # Helpers
 die() {
-  echo "ERROR: $*" >&2
-  exit 1
+    echo "ERROR: $*" >&2
+    exit 1
 }
 info() {
-  echo
-  echo "==> $*"
+    echo
+    echo "==> $*"
 }
 ok() { echo "  [OK] $*"; }
 fail() {
-  echo "  [FAIL] $*" >&2
-  CHECKS_FAILED=1
+    echo "  [FAIL] $*" >&2
+    CHECKS_FAILED=1
 }
 confirm() {
-  read -r -p "$1 [y/N] " _ans
-  [[ "${_ans,,}" == "y" ]] || die "Aborted by user."
+    read -r -p "$1 [y/N] " _ans
+    [[ "${_ans,,}" == "y" ]] || die "Aborted by user."
 }
 
 # Pre-flight: check required tools
 for _cmd in cfdisk mkfs.fat mkfs.btrfs pacstrap arch-chroot genfstab reflector; do
-  command -v "$_cmd" &>/dev/null || die "Required tool '$_cmd' not found. Are you running from Arch ISO?"
+    command -v "$_cmd" &>/dev/null || die "Required tool '$_cmd' not found. Are you running from Arch ISO?"
 done
 
 # Optimize mirrorlist with reflector before pacstrap
 info "Optimizing mirrorlist with reflector..."
 echo "  Fetching fastest mirrors (this may take ~30s)..."
 reflector \
-  --age 12 \
-  --country Indonesia,Singapore \
-  --protocol https \
-  --sort rate \
-  --save /etc/pacman.d/mirrorlist \
-  --latest 10 && ok "Mirrorlist updated" || {
-  echo "  [WARN] reflector failed — continuing with existing mirrorlist"
+    --age 12 \
+    --country Indonesia,Singapore \
+    --protocol https \
+    --sort rate \
+    --save /etc/pacman.d/mirrorlist \
+    --latest 10 && ok "Mirrorlist updated" || {
+    echo "  [WARN] reflector failed — continuing with existing mirrorlist"
 }
 
 # Partitioning
@@ -57,8 +57,8 @@ _efi_size=$(lsblk -b -n -o SIZE "$EFI_PART" 2>/dev/null)
 # System info
 info "System configuration"
 read -r -p "  Hostname: " SYS_HOSTNAME
-[[ "$SYS_HOSTNAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]] \
-  || die "Invalid hostname '$SYS_HOSTNAME'"
+[[ "$SYS_HOSTNAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]] ||
+    die "Invalid hostname '$SYS_HOSTNAME'"
 read -r -p "  Timezone (e.g. Asia/Jakarta): " TIMEZONE
 [[ -f "/usr/share/zoneinfo/$TIMEZONE" ]] || die "Invalid timezone '$TIMEZONE'"
 
@@ -66,33 +66,33 @@ read -r -p "  Username: " USERNAME
 [[ "$USERNAME" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "Invalid username '$USERNAME'"
 
 while true; do
-  read -r -s -p "  Root password: " ROOT_PASS
-  echo
-  if [[ -z "$ROOT_PASS" ]]; then
-    echo "  [!] Password cannot be empty, try again."
-    continue
-  fi
-  read -r -s -p "  Confirm root password: " ROOT_PASS2
-  echo
-  if [[ "$ROOT_PASS" == "$ROOT_PASS2" ]]; then
-    break
-  fi
-  echo "  [!] Passwords do not match, try again."
+    read -r -s -p "  Root password: " ROOT_PASS
+    echo
+    if [[ -z "$ROOT_PASS" ]]; then
+        echo "  [!] Password cannot be empty, try again."
+        continue
+    fi
+    read -r -s -p "  Confirm root password: " ROOT_PASS2
+    echo
+    if [[ "$ROOT_PASS" == "$ROOT_PASS2" ]]; then
+        break
+    fi
+    echo "  [!] Passwords do not match, try again."
 done
 
 while true; do
-  read -r -s -p "  Password for $USERNAME: " USER_PASS
-  echo
-  if [[ -z "$USER_PASS" ]]; then
-    echo "  [!] Password cannot be empty, try again."
-    continue
-  fi
-  read -r -s -p "  Confirm password for $USERNAME: " USER_PASS2
-  echo
-  if [[ "$USER_PASS" == "$USER_PASS2" ]]; then
-    break
-  fi
-  echo "  [!] Passwords do not match, try again."
+    read -r -s -p "  Password for $USERNAME: " USER_PASS
+    echo
+    if [[ -z "$USER_PASS" ]]; then
+        echo "  [!] Password cannot be empty, try again."
+        continue
+    fi
+    read -r -s -p "  Confirm password for $USERNAME: " USER_PASS2
+    echo
+    if [[ "$USER_PASS" == "$USER_PASS2" ]]; then
+        break
+    fi
+    echo "  [!] Passwords do not match, try again."
 done
 
 # Bootloader selection
@@ -102,25 +102,25 @@ echo "  [2] systemd-boot — Simple, fast, UEFI only"
 echo "  [3] rEFInd       — Graphical boot manager, auto-detects kernels, UEFI only"
 echo
 while true; do
-  read -r -p "  Choose bootloader [1/2/3]: " _bl_choice
-  case "$_bl_choice" in
-  1)
-    BOOTLOADER="grub"
-    echo "  Bootloader: GRUB"
-    break
-    ;;
-  2)
-    BOOTLOADER="systemd-boot"
-    echo "  Bootloader: systemd-boot"
-    break
-    ;;
-  3)
-    BOOTLOADER="refind"
-    echo "  Bootloader: rEFInd"
-    break
-    ;;
-  *) echo "  [!] Invalid input, enter 1, 2, or 3." ;;
-  esac
+    read -r -p "  Choose bootloader [1/2/3]: " _bl_choice
+    case "$_bl_choice" in
+    1)
+        BOOTLOADER="grub"
+        echo "  Bootloader: GRUB"
+        break
+        ;;
+    2)
+        BOOTLOADER="systemd-boot"
+        echo "  Bootloader: systemd-boot"
+        break
+        ;;
+    3)
+        BOOTLOADER="refind"
+        echo "  Bootloader: rEFInd"
+        break
+        ;;
+    *) echo "  [!] Invalid input, enter 1, 2, or 3." ;;
+    esac
 done
 
 # Final confirmation
@@ -149,8 +149,8 @@ mkfs.btrfs -f "$LINUX_PART"
 info "Creating Btrfs subvolumes..."
 mount "$LINUX_PART" /mnt
 for _sv in @ @home @var_log @var_cache; do
-  btrfs subvolume create "/mnt/$_sv"
-  ok "Subvolume $_sv created"
+    btrfs subvolume create "/mnt/$_sv"
+    ok "Subvolume $_sv created"
 done
 umount /mnt
 
@@ -160,31 +160,31 @@ info "Mounting subvolumes..."
 # Detect if disk is SSD or HDD
 _rotational=$(cat "/sys/block/$(lsblk -no PKNAME "$LINUX_PART")/queue/rotational" 2>/dev/null || echo "0")
 if [[ "$_rotational" == "0" ]]; then
-  # zstd:1  — kompresi ringan, minimal CPU overhead (penting untuk gaming)
-  # commit=120 — flush ke disk tiap 2 menit, kurangi write pressure & stutter periodik
-  # autodefrag dihapus — berbahaya di SSD, menyebabkan write amplification
-  _OPTS="noatime,compress=zstd:1,ssd,space_cache=v2,discard=async,commit=120"
-  _OPTS_NOCOW="noatime,nodatacow,ssd,space_cache=v2,discard=async,commit=120"
-  ok "Detected SSD — applying SSD-optimized mount options"
+    # zstd:1  — kompresi ringan, minimal CPU overhead (penting untuk gaming)
+    # commit=120 — flush ke disk tiap 2 menit, kurangi write pressure & stutter periodik
+    # autodefrag dihapus — berbahaya di SSD, menyebabkan write amplification
+    _OPTS="noatime,compress=zstd:1,ssd,space_cache=v2,discard=async,commit=120"
+    _OPTS_NOCOW="noatime,nodatacow,ssd,space_cache=v2,discard=async,commit=120"
+    ok "Detected SSD — applying SSD-optimized mount options"
 else
-  # autodefrag berguna di HDD untuk file besar yang terfragmentasi
-  _OPTS="noatime,compress=zstd:1,space_cache=v2,autodefrag,commit=120"
-  _OPTS_NOCOW="noatime,nodatacow,space_cache=v2,commit=120"
-  ok "Detected HDD — applying HDD-compatible mount options"
+    # autodefrag berguna di HDD untuk file besar yang terfragmentasi
+    _OPTS="noatime,compress=zstd:1,space_cache=v2,autodefrag,commit=120"
+    _OPTS_NOCOW="noatime,nodatacow,space_cache=v2,commit=120"
+    ok "Detected HDD — applying HDD-compatible mount options"
 fi
 
 mount -o "${_OPTS},subvol=@" "$LINUX_PART" /mnt
 
 if [[ "$BOOTLOADER" == "grub" ]]; then
-  mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp}
-  mount "$EFI_PART" /mnt/boot/efi
+    mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp}
+    mount "$EFI_PART" /mnt/boot/efi
 else
-  mkdir -p /mnt/{boot,home,var/log,var/cache,tmp}
-  mount "$EFI_PART" /mnt/boot
+    mkdir -p /mnt/{boot,home,var/log,var/cache,tmp}
+    mount "$EFI_PART" /mnt/boot
 fi
 
-mount -o "${_OPTS},subvol=@home"          "$LINUX_PART" /mnt/home
-mount -o "${_OPTS_NOCOW},subvol=@var_log"   "$LINUX_PART" /mnt/var/log
+mount -o "${_OPTS},subvol=@home" "$LINUX_PART" /mnt/home
+mount -o "${_OPTS_NOCOW},subvol=@var_log" "$LINUX_PART" /mnt/var/log
 mount -o "${_OPTS_NOCOW},subvol=@var_cache" "$LINUX_PART" /mnt/var/cache
 
 # Base install
@@ -194,13 +194,14 @@ _BOOTLOADER_PKGS=()
 [[ "$BOOTLOADER" == "refind" ]] && _BOOTLOADER_PKGS=(refind)
 
 pacstrap -K /mnt \
-  base base-devel \
-  linux-zen linux-zen-headers \
-  linux-firmware btrfs-progs \
-  sudo git networkmanager \
-  pipewire pipewire-pulse pipewire-jack pipewire-alsa wireplumber \
-  sof-firmware \
-  "${_BOOTLOADER_PKGS[@]}"
+    base base-devel \
+    linux-zen linux-zen-headers \
+    linux-firmware btrfs-progs \
+    sudo git networkmanager iwd \
+    intel-ucode \
+    pipewire pipewire-pulse pipewire-jack pipewire-alsa wireplumber \
+    sof-firmware \
+    "${_BOOTLOADER_PKGS[@]}"
 
 # fstab
 info "Generating fstab..."
@@ -209,7 +210,7 @@ genfstab -U /mnt >/mnt/etc/fstab
 # Tambahkan tmpfs untuk /tmp — lebih cepat dari subvolume btrfs untuk
 # build artifacts, compile temp files, dan shader cache sementara
 # Naikkan size ke 8G jika RAM > 16G
-echo "tmpfs /tmp tmpfs defaults,nosuid,nodev,size=4G 0 0" >> /mnt/etc/fstab
+echo "tmpfs /tmp tmpfs defaults,nosuid,nodev,size=4G 0 0" >>/mnt/etc/fstab
 ok "fstab written (including tmpfs /tmp)"
 
 # chroot block 1 — locale, hostname, initramfs
@@ -247,13 +248,13 @@ EOF
 # Passwords — piped from outside
 info "Setting passwords..."
 printf 'root:%s\n' "$ROOT_PASS" | arch-chroot /mnt chpasswd ||
-  die "Failed to set root password"
+    die "Failed to set root password"
 printf '%s:%s\n' "$USERNAME" "$USER_PASS" | arch-chroot /mnt chpasswd ||
-  die "Failed to set user password"
+    die "Failed to set user password"
 
 # Resolve root PARTUUID outside chroot (blkid needs host /dev)
 _ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$LINUX_PART") ||
-  die "Failed to resolve PARTUUID for $LINUX_PART"
+    die "Failed to resolve PARTUUID for $LINUX_PART"
 
 # chroot block 3 — sudo, services, bootloader
 info "Configuring sudo, services, bootloader..."
@@ -262,6 +263,12 @@ set -Eeuo pipefail
 
 echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/99_wheel
 chmod 440 /etc/sudoers.d/99_wheel
+
+mkdir -p /etc/NetworkManager/conf.d
+cat > /etc/NetworkManager/conf.d/wifi_backend.conf <<NM
+[device]
+wifi.backend=iwd
+NM
 
 systemctl enable NetworkManager
 systemctl enable systemd-timesyncd
@@ -285,6 +292,7 @@ LOADER
   cat > /boot/loader/entries/arch.conf <<ENTRY
 title   Arch Linux (linux-zen)
 linux   /vmlinuz-linux-zen
+initrd  /intel-ucode.img
 initrd  /initramfs-linux-zen.img
 options root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw
 ENTRY
@@ -292,6 +300,7 @@ ENTRY
   cat > /boot/loader/entries/arch-fallback.conf <<ENTRY
 title   Arch Linux (linux-zen, fallback)
 linux   /vmlinuz-linux-zen
+initrd  /intel-ucode.img
 initrd  /initramfs-linux-zen-fallback.img
 options root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw
 ENTRY
@@ -303,7 +312,7 @@ else
   cat > /boot/refind_linux.conf <<REFIND
 "Boot default"  "root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw quiet"
 "Boot verbose"  "root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw"
-"Boot fallback" "root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw initrd=initramfs-linux-zen-fallback.img"
+"Boot fallback" "root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw initrd=intel-ucode.img initrd=initramfs-linux-zen-fallback.img"
 REFIND
 fi
 EOF
@@ -317,131 +326,143 @@ CHECKS_FAILED=0
 
 # fstab validity
 if findmnt --verify --tab-file /mnt/etc/fstab &>/dev/null; then
-  ok "fstab is valid"
+    ok "fstab is valid"
 else
-  fail "fstab validation failed — run 'findmnt --verify' after reboot"
+    fail "fstab validation failed — run 'findmnt --verify' after reboot"
 fi
 
 # EFI bootloader binary & config
 if [[ "$BOOTLOADER" == "grub" ]]; then
-  if [[ -f /mnt/boot/efi/EFI/GRUB/grubx64.efi ]]; then
-    ok "GRUB EFI binary found"
-  else
-    fail "GRUB EFI binary missing at /boot/efi/EFI/GRUB/grubx64.efi"
-  fi
+    if [[ -f /mnt/boot/efi/EFI/GRUB/grubx64.efi ]]; then
+        ok "GRUB EFI binary found"
+    else
+        fail "GRUB EFI binary missing at /boot/efi/EFI/GRUB/grubx64.efi"
+    fi
 
-  if [[ -f /mnt/boot/grub/grub.cfg ]]; then
-    ok "grub.cfg found"
-  else
-    fail "grub.cfg missing — grub-mkconfig may have failed"
-  fi
+    if [[ -f /mnt/boot/grub/grub.cfg ]]; then
+        ok "grub.cfg found"
+    else
+        fail "grub.cfg missing — grub-mkconfig may have failed"
+    fi
 
 elif [[ "$BOOTLOADER" == "systemd-boot" ]]; then
-  if [[ -f /mnt/boot/EFI/systemd/systemd-bootx64.efi ]]; then
-    ok "systemd-boot EFI binary found"
-  else
-    fail "systemd-boot EFI binary missing"
-  fi
+    if [[ -f /mnt/boot/EFI/systemd/systemd-bootx64.efi ]]; then
+        ok "systemd-boot EFI binary found"
+    else
+        fail "systemd-boot EFI binary missing"
+    fi
 
-  if [[ -f /mnt/boot/loader/entries/arch.conf ]]; then
-    ok "systemd-boot entry arch.conf found"
-  else
-    fail "systemd-boot entry missing at /boot/loader/entries/arch.conf"
-  fi
+    if [[ -f /mnt/boot/loader/entries/arch.conf ]]; then
+        ok "systemd-boot entry arch.conf found"
+    else
+        fail "systemd-boot entry missing at /boot/loader/entries/arch.conf"
+    fi
 
 else
-  # rEFInd
-  if [[ -f /mnt/boot/EFI/refind/refind_x64.efi ]]; then
-    ok "rEFInd EFI binary found"
-  else
-    fail "rEFInd EFI binary missing at /boot/EFI/refind/refind_x64.efi"
-  fi
+    # rEFInd
+    if [[ -f /mnt/boot/EFI/refind/refind_x64.efi ]]; then
+        ok "rEFInd EFI binary found"
+    else
+        fail "rEFInd EFI binary missing at /boot/EFI/refind/refind_x64.efi"
+    fi
 
-  if [[ -f /mnt/boot/refind_linux.conf ]]; then
-    ok "refind_linux.conf found"
-  else
-    fail "refind_linux.conf missing — kernel options not set"
-  fi
+    if [[ -f /mnt/boot/refind_linux.conf ]]; then
+        ok "refind_linux.conf found"
+    else
+        fail "refind_linux.conf missing — kernel options not set"
+    fi
 fi
 
 # Initramfs
 _img=/mnt/boot/initramfs-linux-zen.img
 if [[ -f "$_img" ]]; then
-  ok "Initramfs present: $(basename "$_img")"
+    ok "Initramfs present: $(basename "$_img")"
 else
-  fail "Missing initramfs: $_img"
+    fail "Missing initramfs: $_img"
+fi
+
+if [[ -f /mnt/boot/intel-ucode.img ]]; then
+    ok "Intel microcode present"
+else
+    fail "intel-ucode.img missing"
 fi
 
 # User exists
 if arch-chroot /mnt id "$USERNAME" &>/dev/null; then
-  ok "User '$USERNAME' exists"
+    ok "User '$USERNAME' exists"
 else
-  fail "User '$USERNAME' not found in chroot"
+    fail "User '$USERNAME' not found in chroot"
+fi
+
+if [[ -f /mnt/etc/NetworkManager/conf.d/wifi_backend.conf ]]; then
+    ok "NetworkManager iwd backend configured"
+else
+    fail "wifi_backend.conf missing"
 fi
 
 # Locale generated
 if grep -q "^LANG=en_US.UTF-8" /mnt/etc/locale.conf 2>/dev/null; then
-  ok "Locale en_US.UTF-8 configured"
+    ok "Locale en_US.UTF-8 configured"
 else
-  fail "Locale may not be configured correctly"
+    fail "Locale may not be configured correctly"
 fi
 
 # Enabled services
 for _svc in NetworkManager systemd-timesyncd; do
-  if arch-chroot /mnt systemctl is-enabled "$_svc" &>/dev/null; then
-    ok "Service enabled: $_svc"
-  else
-    fail "Service NOT enabled: $_svc"
-  fi
+    if arch-chroot /mnt systemctl is-enabled "$_svc" &>/dev/null; then
+        ok "Service enabled: $_svc"
+    else
+        fail "Service NOT enabled: $_svc"
+    fi
 done
 
 # Hostname
 if [[ "$(cat /mnt/etc/hostname 2>/dev/null)" == "$SYS_HOSTNAME" ]]; then
-  ok "Hostname: $SYS_HOSTNAME"
+    ok "Hostname: $SYS_HOSTNAME"
 else
-  fail "Hostname mismatch in /etc/hostname"
+    fail "Hostname mismatch in /etc/hostname"
 fi
 
 # /etc/hosts
 if grep -q "127.0.1.1" /mnt/etc/hosts 2>/dev/null; then
-  ok "/etc/hosts has 127.0.1.1 entry"
+    ok "/etc/hosts has 127.0.1.1 entry"
 else
-  fail "/etc/hosts missing 127.0.1.1 entry"
+    fail "/etc/hosts missing 127.0.1.1 entry"
 fi
 
 # Subvolumes
-for _sv in @ @home @var_log @var_cache @var_lib; do
-  if btrfs subvolume list /mnt | grep -q "path ${_sv}$"; then
-    ok "Subvolume present: $_sv"
-  else
-    fail "Subvolume missing: $_sv"
-  fi
+for _sv in @ @home @var_log @var_cache; do
+    if btrfs subvolume list /mnt | grep -q "path ${_sv}$"; then
+        ok "Subvolume present: $_sv"
+    else
+        fail "Subvolume missing: $_sv"
+    fi
 done
 
 # tmpfs /tmp entry in fstab
 if grep -q "^tmpfs /tmp" /mnt/etc/fstab 2>/dev/null; then
-  ok "tmpfs /tmp entry present in fstab"
+    ok "tmpfs /tmp entry present in fstab"
 else
-  fail "tmpfs /tmp missing from fstab"
+    fail "tmpfs /tmp missing from fstab"
 fi
 
 # Final result
 echo
 if [[ "$CHECKS_FAILED" -eq 0 ]]; then
-  echo "  ✔  All checks passed."
-  echo "  ✔  Installation complete — reboot and login as: $USERNAME"
-  echo
-  echo "  NOTE: Setelah login, jalankan perintah berikut untuk setup Snapper:"
-  echo "        sudo pacman -S snapper"
-  echo "        sudo snapper -c root create-config /"
-  echo
-  echo "  NOTE: Untuk Steam/game files, disable CoW setelah install:"
-  echo "        chattr +C ~/.steam ~/.local/share/Steam"
-  echo
-  umount -R /mnt && ok "Filesystems unmounted" || echo "  [WARN] umount failed — run 'umount -R /mnt' manually before rebooting"
+    echo "  ✔  All checks passed."
+    echo "  ✔  Installation complete — reboot and login as: $USERNAME"
+    echo
+    echo "  NOTE: Setelah login, jalankan perintah berikut untuk setup Snapper:"
+    echo "        sudo pacman -S snapper"
+    echo "        sudo snapper -c root create-config /"
+    echo
+    echo "  NOTE: Untuk Steam/game files, disable CoW setelah install:"
+    echo "        chattr +C ~/.steam ~/.local/share/Steam"
+    echo
+    umount -R /mnt && ok "Filesystems unmounted" || echo "  [WARN] umount failed — run 'umount -R /mnt' manually before rebooting"
 else
-  echo "  ✘  Installation finished with warnings."
-  echo "     Review [FAIL] items above before rebooting."
-  echo "     Run 'umount -R /mnt' manually before rebooting."
+    echo "  ✘  Installation finished with warnings."
+    echo "     Review [FAIL] items above before rebooting."
+    echo "     Run 'umount -R /mnt' manually before rebooting."
 fi
 echo

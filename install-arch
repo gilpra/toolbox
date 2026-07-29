@@ -30,12 +30,12 @@ done
 info "Optimizing mirrorlist with reflector..."
 echo "  Fetching fastest mirrors (this may take ~30s)..."
 reflector \
-    --age 12 \
-    --country Indonesia,Singapore \
+    --latest 10 \
     --protocol https \
+    --country Indonesia,Singapore \
+    --completion-percent 100 \
     --sort rate \
-    --save /etc/pacman.d/mirrorlist \
-    --latest 10 && ok "Mirrorlist updated" || {
+    --save /etc/pacman.d/mirrorlist && ok "Mirrorlist updated" || {
     echo "  [WARN] reflector failed — continuing with existing mirrorlist"
 }
 
@@ -163,13 +163,11 @@ if [[ "$_rotational" == "0" ]]; then
     # zstd:1  — kompresi ringan, minimal CPU overhead (penting untuk gaming)
     # commit=120 — flush ke disk tiap 2 menit, kurangi write pressure & stutter periodik
     # autodefrag dihapus — berbahaya di SSD, menyebabkan write amplification
-    _OPTS="noatime,compress=zstd:1,ssd,discard=async,commit=120"
-    _OPTS_NOCOW="noatime,nodatacow,ssd,discard=async,commit=120"
+    _OPTS="noatime,compress=zstd:1,ssd,commit=120"
     ok "Detected SSD — applying SSD-optimized mount options"
 else
     # autodefrag berguna di HDD untuk file besar yang terfragmentasi
     _OPTS="noatime,compress=zstd:1,autodefrag,commit=120"
-    _OPTS_NOCOW="noatime,nodatacow,commit=120"
     ok "Detected HDD — applying HDD-compatible mount options"
 fi
 
@@ -185,7 +183,7 @@ fi
 
 mount -o "${_OPTS},subvol=@home" "$LINUX_PART" /mnt/home
 mount -o "${_OPTS},subvol=@var_log" "$LINUX_PART" /mnt/var/log
-mount -o "${_OPTS_NOCOW},subvol=@var_cache" "$LINUX_PART" /mnt/var/cache
+mount -o "${_OPTS},subvol=@var_cache" "$LINUX_PART" /mnt/var/cache
 
 # Base install
 info "Running pacstrap (this will take a while)..."

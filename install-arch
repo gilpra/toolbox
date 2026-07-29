@@ -163,13 +163,13 @@ if [[ "$_rotational" == "0" ]]; then
     # zstd:1  — kompresi ringan, minimal CPU overhead (penting untuk gaming)
     # commit=120 — flush ke disk tiap 2 menit, kurangi write pressure & stutter periodik
     # autodefrag dihapus — berbahaya di SSD, menyebabkan write amplification
-    _OPTS="noatime,compress=zstd:1,ssd,space_cache=v2,discard=async,commit=120"
-    _OPTS_NOCOW="noatime,nodatacow,ssd,space_cache=v2,discard=async,commit=120"
+    _OPTS="noatime,compress=zstd:1,ssd,discard=async,commit=120"
+    _OPTS_NOCOW="noatime,nodatacow,ssd,discard=async,commit=120"
     ok "Detected SSD — applying SSD-optimized mount options"
 else
     # autodefrag berguna di HDD untuk file besar yang terfragmentasi
-    _OPTS="noatime,compress=zstd:1,space_cache=v2,autodefrag,commit=120"
-    _OPTS_NOCOW="noatime,nodatacow,space_cache=v2,commit=120"
+    _OPTS="noatime,compress=zstd:1,autodefrag,commit=120"
+    _OPTS_NOCOW="noatime,nodatacow,commit=120"
     ok "Detected HDD — applying HDD-compatible mount options"
 fi
 
@@ -184,7 +184,7 @@ else
 fi
 
 mount -o "${_OPTS},subvol=@home" "$LINUX_PART" /mnt/home
-mount -o "${_OPTS_NOCOW},subvol=@var_log" "$LINUX_PART" /mnt/var/log
+mount -o "${_OPTS},subvol=@var_log" "$LINUX_PART" /mnt/var/log
 mount -o "${_OPTS_NOCOW},subvol=@var_cache" "$LINUX_PART" /mnt/var/cache
 
 # Base install
@@ -210,7 +210,7 @@ genfstab -U /mnt >/mnt/etc/fstab
 # Tambahkan tmpfs untuk /tmp — lebih cepat dari subvolume btrfs untuk
 # build artifacts, compile temp files, dan shader cache sementara
 # Naikkan size ke 8G jika RAM > 16G
-echo "tmpfs /tmp tmpfs defaults,nosuid,nodev,size=4G 0 0" >>/mnt/etc/fstab
+echo "tmpfs /tmp tmpfs defaults,nosuid,nodev,size=25% 0 0" >>/mnt/etc/fstab
 ok "fstab written (including tmpfs /tmp)"
 
 # chroot block 1 — locale, hostname, initramfs
@@ -232,7 +232,6 @@ echo "${SYS_HOSTNAME}" > /etc/hostname
     echo "127.0.1.1   ${SYS_HOSTNAME}.localdomain ${SYS_HOSTNAME}"
 } > /etc/hosts
 
-sed -i 's/^MODULES=(/MODULES=(btrfs /' /etc/mkinitcpio.conf
 echo "KEYMAP=us" > /etc/vconsole.conf
 
 mkinitcpio -P

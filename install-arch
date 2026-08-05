@@ -95,33 +95,8 @@ while true; do
     echo "  [!] Passwords do not match, try again."
 done
 
-# Bootloader selection
-info "Bootloader selection"
-echo "  [1] GRUB         — Universal, multi-OS support, ideal for BTRFS snapshot booting"
-echo "  [2] systemd-boot — Simple, fast, UEFI only"
-echo "  [3] rEFInd       — Graphical boot manager, auto-detects kernels, UEFI only"
-echo
-while true; do
-    read -r -p "  Choose bootloader [1/2/3]: " _bl_choice
-    case "$_bl_choice" in
-    1)
-        BOOTLOADER="grub"
-        echo "  Bootloader: GRUB"
-        break
-        ;;
-    2)
-        BOOTLOADER="systemd-boot"
-        echo "  Bootloader: systemd-boot"
-        break
-        ;;
-    3)
-        BOOTLOADER="refind"
-        echo "  Bootloader: rEFInd"
-        break
-        ;;
-    *) echo "  [!] Invalid input, enter 1, 2, or 3." ;;
-    esac
-done
+# Bootloader — GRUB only
+BOOTLOADER="grub"
 
 # Final confirmation
 echo
@@ -134,7 +109,7 @@ printf "  │  Linux    : %-23s │\n" "$LINUX_PART"
 printf "  │  Hostname : %-23s │\n" "$SYS_HOSTNAME"
 printf "  │  Timezone : %-23s │\n" "$TIMEZONE"
 printf "  │  Username : %-23s │\n" "$USERNAME"
-printf "  │  Bootloader: %-22s │\n" "$BOOTLOADER"
+printf "  │  Bootloader: %-22s │\n" "GRUB"
 echo "  └─────────────────────────────────────┘"
 echo
 confirm "WARNING: All data on $EFI_PART and $LINUX_PART will be DESTROYED. Continue?"
@@ -163,7 +138,7 @@ if [[ "$_rotational" == "0" ]]; then
     # zstd:1  — kompresi ringan, minimal CPU overhead (penting untuk gaming)
     # commit=120 — flush ke disk tiap 2 menit, kurangi write pressure & stutter periodik
     # autodefrag dihapus — berbahaya di SSD, menyebabkan write amplification
-    _OPTS="noatime,compress=zstd:1,ssd,commit=120"
+    _OPTS="noatime,compress=zstd:1,ssd,discard=async,commit=120"
     ok "Detected SSD — applying SSD-optimized mount options"
 else
     # autodefrag berguna di HDD untuk file besar yang terfragmentasi
@@ -173,13 +148,8 @@ fi
 
 mount -o "${_OPTS},subvol=@" "$LINUX_PART" /mnt
 
-if [[ "$BOOTLOADER" == "grub" ]]; then
-    mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp}
-    mount "$EFI_PART" /mnt/boot/efi
-else
-    mkdir -p /mnt/{boot,home,var/log,var/cache,tmp}
-    mount "$EFI_PART" /mnt/boot
-fi
+mkdir -p /mnt/{boot/efi,home,var/log,var/cache,tmp}
+mount "$EFI_PART" /mnt/boot/efi
 
 mount -o "${_OPTS},subvol=@home" "$LINUX_PART" /mnt/home
 mount -o "${_OPTS},subvol=@var_log" "$LINUX_PART" /mnt/var/log
@@ -187,10 +157,6 @@ mount -o "${_OPTS},subvol=@var_cache" "$LINUX_PART" /mnt/var/cache
 
 # Base install
 info "Running pacstrap (this will take a while)..."
-_BOOTLOADER_PKGS=()
-[[ "$BOOTLOADER" == "grub" ]] && _BOOTLOADER_PKGS=(grub efibootmgr)
-[[ "$BOOTLOADER" == "refind" ]] && _BOOTLOADER_PKGS=(refind)
-
 pacstrap -K /mnt \
     base base-devel \
     linux-zen linux-zen-headers \
@@ -199,7 +165,7 @@ pacstrap -K /mnt \
     intel-ucode \
     pipewire pipewire-pulse pipewire-jack pipewire-alsa wireplumber \
     sof-firmware \
-    "${_BOOTLOADER_PKGS[@]}"
+    grub efibootmgr
 
 # fstab
 info "Generating fstab..."
@@ -249,10 +215,6 @@ printf 'root:%s\n' "$ROOT_PASS" | arch-chroot /mnt chpasswd ||
 printf '%s:%s\n' "$USERNAME" "$USER_PASS" | arch-chroot /mnt chpasswd ||
     die "Failed to set user password"
 
-# Resolve root PARTUUID outside chroot (blkid needs host /dev)
-_ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$LINUX_PART") ||
-    die "Failed to resolve PARTUUID for $LINUX_PART"
-
 # chroot block 3 — sudo, services, bootloader
 info "Configuring sudo, services, bootloader..."
 arch-chroot /mnt /bin/bash <<EOF || die "chroot [services/bootloader] failed"
@@ -271,47 +233,8 @@ systemctl enable NetworkManager
 systemctl enable systemd-timesyncd
 # fstrim.timer tidak diaktifkan — redundant dengan discard=async di mount options
 
-if [[ "${BOOTLOADER}" == "grub" ]]; then
-  grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
-  grub-mkconfig -o /boot/grub/grub.cfg
-
-elif [[ "${BOOTLOADER}" == "systemd-boot" ]]; then
-  bootctl install
-
-  cat > /boot/loader/loader.conf <<LOADER
-default  arch.conf
-timeout  4
-console-mode max
-editor   no
-LOADER
-
-  mkdir -p /boot/loader/entries
-  cat > /boot/loader/entries/arch.conf <<ENTRY
-title   Arch Linux (linux-zen)
-linux   /vmlinuz-linux-zen
-initrd  /intel-ucode.img
-initrd  /initramfs-linux-zen.img
-options root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw
-ENTRY
-
-  cat > /boot/loader/entries/arch-fallback.conf <<ENTRY
-title   Arch Linux (linux-zen, fallback)
-linux   /vmlinuz-linux-zen
-initrd  /intel-ucode.img
-initrd  /initramfs-linux-zen-fallback.img
-options root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw
-ENTRY
-
-else
-  # rEFInd: ESP is already mounted at /boot
-  refind-install
-
-  cat > /boot/refind_linux.conf <<REFIND
-"Boot default"  "root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw quiet"
-"Boot verbose"  "root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw"
-"Boot fallback" "root=PARTUUID=${_ROOT_PARTUUID} rootflags=subvol=@ rw initrd=intel-ucode.img initrd=initramfs-linux-zen-fallback.img"
-REFIND
-fi
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
+grub-mkconfig -o /boot/grub/grub.cfg
 EOF
 
 # Cleanup
@@ -329,45 +252,16 @@ else
 fi
 
 # EFI bootloader binary & config
-if [[ "$BOOTLOADER" == "grub" ]]; then
-    if [[ -f /mnt/boot/efi/EFI/GRUB/grubx64.efi ]]; then
-        ok "GRUB EFI binary found"
-    else
-        fail "GRUB EFI binary missing at /boot/efi/EFI/GRUB/grubx64.efi"
-    fi
-
-    if [[ -f /mnt/boot/grub/grub.cfg ]]; then
-        ok "grub.cfg found"
-    else
-        fail "grub.cfg missing — grub-mkconfig may have failed"
-    fi
-
-elif [[ "$BOOTLOADER" == "systemd-boot" ]]; then
-    if [[ -f /mnt/boot/EFI/systemd/systemd-bootx64.efi ]]; then
-        ok "systemd-boot EFI binary found"
-    else
-        fail "systemd-boot EFI binary missing"
-    fi
-
-    if [[ -f /mnt/boot/loader/entries/arch.conf ]]; then
-        ok "systemd-boot entry arch.conf found"
-    else
-        fail "systemd-boot entry missing at /boot/loader/entries/arch.conf"
-    fi
-
+if [[ -f /mnt/boot/efi/EFI/GRUB/grubx64.efi ]]; then
+    ok "GRUB EFI binary found"
 else
-    # rEFInd
-    if [[ -f /mnt/boot/EFI/refind/refind_x64.efi ]]; then
-        ok "rEFInd EFI binary found"
-    else
-        fail "rEFInd EFI binary missing at /boot/EFI/refind/refind_x64.efi"
-    fi
+    fail "GRUB EFI binary missing at /boot/efi/EFI/GRUB/grubx64.efi"
+fi
 
-    if [[ -f /mnt/boot/refind_linux.conf ]]; then
-        ok "refind_linux.conf found"
-    else
-        fail "refind_linux.conf missing — kernel options not set"
-    fi
+if [[ -f /mnt/boot/grub/grub.cfg ]]; then
+    ok "grub.cfg found"
+else
+    fail "grub.cfg missing — grub-mkconfig may have failed"
 fi
 
 # Initramfs

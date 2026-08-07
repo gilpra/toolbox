@@ -16,7 +16,7 @@ sudo pacman -S --noconfirm --needed mesa vulkan-intel intel-media-driver
 
 echo
 echo "Optimization GRUB..."
-sudo sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=3 nowatchdog intel_pstate=active i915.enable_guc=3 i915.enable_fbc=1 transparent_hugepage=madvise split_lock_detect=off zswap.enabled=0"/' /etc/default/grub
+sudo sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="nowatchdog nvme_load=YES i915.enable_guc=3 transparent_hugepage=madvise zswap.enabled=0 loglevel=3"/' /etc/default/grub
 sudo grub-mkconfig -o /boot/grub/grub.cfg
 
 echo

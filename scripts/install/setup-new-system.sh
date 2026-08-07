@@ -19,7 +19,7 @@ fish -c "set -U nvm_default_version lts"
 echo "Setup neovim with dotfiles..."
 sudo pacman -S --needed neovim tree-sitter-cli
 rm -rf ~/.config/nvim
-git clone https://github.com/garpra/nvim.git ~/.config/nvim
+git clone https://github.com/gilpra/nvim.git ~/.config/nvim
 
 if ! command -v yay >/dev/null 2>&1; then
     echo "Installing yay..."
@@ -39,7 +39,7 @@ fi
 
 echo "Install sway dotfiles..."
 rm -rf ~/.dotfiles/sway-dots
-git clone https://github.com/garpra/sway-dots ~/.dotfiles/sway-dots
+git clone https://github.com/gilpra/sway-dots ~/.dotfiles/sway-dots
 bash ~/.dotfiles/sway-dots/setup.sh
 
 echo "Installing firefox..."

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "Installing package..."
-sudo pacman -S --needed ripgrep fzf less jq inxi openssh noto-fonts noto-fonts-emoji duf
+sudo pacman -S --needed ripgrep fzf less jq inxi openssh noto-fonts noto-fonts-emoji duf lazygit
 
 echo "Setup ssh for Github..."
 ssh-keygen -t ed25519
@@ -16,6 +16,10 @@ echo "Install sway dotfiles..."
 rm -rf ~/.dotfiles/sway-dots
 git clone https://github.com/gilpra/sway-dots ~/.dotfiles/sway-dots
 bash ~/.dotfiles/sway-dots/setup.sh
+
+echo "Setup folder..."
+xdg-user-dirs-update
+mkdir -p ~/Projects/Programming/ ~/Games/
 
 echo "Installing firefox..."
 sudo pacman -S --needed firefox

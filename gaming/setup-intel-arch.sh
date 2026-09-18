@@ -1,94 +1,52 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -Eeuo pipefail
 
-if ! grep -q "^\[multilib\]$" /etc/pacman.conf; then
+# Enable multilib
+if ! grep -q '^\[multilib\]$' /etc/pacman.conf; then
     echo
-    echo "Enable multilib..."
-    sudo cp /etc/pacman.conf /etc/pacman.conf.bak
-    sudo sed -i '/^#\[multilib\]/,/^#Include/s/^#//' /etc/pacman.conf
+    echo 'Enabling multilib...'
+    sudo cp -a /etc/pacman.conf /etc/pacman.conf.bak
+    # Uncomment [multilib] block.
+    sudo sed -i \
+        '/^[[:space:]]*#\[multilib\][[:space:]]*$/,/^[[:space:]]*#Include[[:space:]]*=[[:space:]]*\/etc\/pacman\.d\/mirrorlist[[:space:]]*$/ s/^[[:space:]]*#//' \
+        /etc/pacman.conf
 fi
+
+# Update system
 sudo pacman -Syu --noconfirm
 
+# Instal package
 echo
-echo "Installing Intel graphics packages..."
-sudo pacman -S --noconfirm --needed \
+echo "Installing Gaming and Intel graphics packages..."
+sudo pacman -S --needed \
     mesa \
-    lib32-mesa \
     vulkan-intel \
-    lib32-vulkan-intel \
-    intel-media-driver
-
-echo
-echo "Installing additional gaming packages..."
-sudo pacman -S --noconfirm --needed \
+    intel-media-driver \
     gamemode \
     gamescope \
-    zenity
+    ntsync-autoload
 
+# Gamemode
 echo
-echo "Installing power-profiles-daemon..."
-sudo pacman -S --noconfirm --needed \
-    power-profiles-daemon
-sudo systemctl enable --now power-profiles-daemon
-
-echo
-echo "Configuring GameMode..."
-mkdir -p ~/.config
-
-tee ~/.config/gamemode.ini >/dev/null <<EOF
+echo 'Configuring Gamemode...'
+sudo usermod -aG gamemode "$USER"
+mkdir -p "$HOME/.config"
+cat >"$HOME/.config/gamemode.ini" <<'GAMEMODE'
 [general]
-desiredprof=performance
+desiredgov=performance
 renice=5
 inhibit_screensaver=1
-EOF
-
-sudo gpasswd -a "$USER" gamemode
+GAMEMODE
 
 echo
-echo "Enable ntsync..."
-if sudo modprobe ntsync; then
-    echo "ntsync" | sudo tee /etc/modules-load.d/ntsync.conf
-    echo 'KERNEL=="ntsync", TAG+="uaccess"' | sudo tee /etc/udev/rules.d/99-ntsync.rules
-    sudo udevadm control --reload-rules
-    sudo udevadm trigger
-else
-    echo "[WARN] ntsync is not available in the current kernel — skipping"
+echo 'Gaming setup complete.'
+
+if ! id -nG "$USER" | tr ' ' '\n' | grep -qx 'gamemode'; then
+    echo
+    echo 'IMPORTANT:'
+    echo 'Log out and log back in once so the gamemode group becomes active.'
+    echo 'Then verify GameMode with:'
+    echo
+    echo 'gamemoded -t'
 fi
-
-echo
-echo "Installing zram..."
-sudo pacman -S --noconfirm --needed \
-    zram-generator
-
-echo
-echo "Setup zram-generator..."
-
-[ -f /etc/systemd/zram-generator.conf ] &&
-    sudo cp /etc/systemd/zram-generator.conf /etc/systemd/zram-generator.conf.bak
-
-sudo tee /etc/systemd/zram-generator.conf >/dev/null <<EOF
-[zram0]
-zram-size = ram
-compression-algorithm = zstd
-swap-priority = 100
-fs-type = swap
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl restart systemd-zram-setup@zram0.service
-
-echo
-echo "Checking zram..."
-swapon --summary
-
-echo
-echo "Checking power profile..."
-powerprofilesctl get
-
-echo
-echo "Checking kernel..."
-uname -r
-
-echo
-echo "Setup gaming for Intel Arch Linux complete!"

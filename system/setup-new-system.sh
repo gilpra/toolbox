@@ -31,7 +31,6 @@ rm -rf ~/.dotfiles
 git clone --depth 1 https://github.com/gilpra/dotfiles.git ~/.dotfiles
 
 echo "Setup folder..."
-xdg-user-dirs-update
 mkdir -p ~/Games/
 
 echo "Setup tmux..."

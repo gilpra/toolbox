@@ -44,9 +44,7 @@ confirm_destructive() {
     echo 'to this Arch installation. Do NOT select a shared Windows'
     echo 'ESP if you need to preserve its files.'
     echo
-
     lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS "$DISK"
-
     echo
     read -r -p 'Continue with formatting? [y/N]: ' answer
 
@@ -66,7 +64,6 @@ mountpoint -q /sys/firmware/efi/efivars ||
 
 # Time and network
 info 'Synchronizing system clock'
-
 timedatectl set-ntp true
 
 if timedatectl show -p NTPSynchronized --value | grep -q '^yes$'; then
@@ -76,10 +73,8 @@ else
 fi
 
 info 'Checking network'
-
 curl -fsS --max-time 10 https://archlinux.org >/dev/null ||
     die 'No working Internet connection.'
-
 ok 'Internet connection works'
 
 if command -v reflector >/dev/null 2>&1; then
@@ -99,17 +94,14 @@ fi
 info 'System configuration'
 
 read -r -p '  Hostname: ' SYS_HOSTNAME
-
 [[ "$SYS_HOSTNAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]] ||
     die "Invalid hostname '$SYS_HOSTNAME'."
 
 read -r -p '  Timezone (example: Asia/Jakarta): ' TIMEZONE
-
 [[ -f "/usr/share/zoneinfo/$TIMEZONE" ]] ||
     die "Invalid timezone '$TIMEZONE'."
 
 read -r -p '  Username: ' USERNAME
-
 [[ "$USERNAME" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] ||
     die "Invalid username '$USERNAME'."
 
@@ -117,7 +109,6 @@ read -r -p '  Username: ' USERNAME
 info 'Partition setup'
 
 read -r -p '  Target disk (example: /dev/nvme0n1): ' DISK
-
 [[ -b "$DISK" ]] ||
     die "Disk '$DISK' does not exist."
 
@@ -207,7 +198,6 @@ mkdir -p \
 mount -o "$BTRFS_OPTS,subvol=@home" "$ROOT_PART" "$TARGET/home"
 mount -o "$BTRFS_OPTS,subvol=@cache" "$ROOT_PART" "$TARGET/var/cache"
 mount -o "$BTRFS_OPTS,subvol=@log" "$ROOT_PART" "$TARGET/var/log"
-
 mount "$EFI_PART" "$TARGET/boot/efi"
 
 # Base installation
@@ -250,7 +240,6 @@ arch-chroot "$TARGET" /bin/bash -s -- \
     "$SYS_HOSTNAME" \
     "$USERNAME" \
     "$VMD_PRESENT" <<'CHROOT'
-
 set -Eeuo pipefail
 
 TIMEZONE="$1"
@@ -264,9 +253,7 @@ hwclock --systohc
 
 # Locale
 sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
-
 locale-gen
-
 echo 'LANG=en_US.UTF-8' > /etc/locale.conf
 
 # Hostname
@@ -289,12 +276,10 @@ fi
 # sudo
 echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/99-wheel
 chmod 440 /etc/sudoers.d/99-wheel
-
 visudo -cf /etc/sudoers.d/99-wheel
 
 # NetworkManager: use iwd as the Wi-Fi backend
 mkdir -p /etc/NetworkManager/conf.d
-
 cat > /etc/NetworkManager/conf.d/wifi_backend.conf <<'IWD'
 [device]
 wifi.backend=iwd
@@ -325,7 +310,6 @@ else
 fi
 
 mkdir -p /etc/sysctl.d
-
 cat > /etc/sysctl.d/99-zram-swappiness.conf <<'SYSCTL'
 vm.swappiness = 150
 SYSCTL
@@ -349,7 +333,6 @@ grub-install \
     --bootloader-id=GRUB
 
 grub-mkconfig -o /boot/grub/grub.cfg
-
 CHROOT
 
 # Passwords
@@ -358,24 +341,20 @@ info 'Setting account passwords'
 while true; do
     read -r -s -p '  Root password: ' ROOT_PASS
     echo
-
     read -r -s -p '  Confirm root password: ' ROOT_PASS2
     echo
 
     [[ -n "$ROOT_PASS" && "$ROOT_PASS" == "$ROOT_PASS2" ]] && break
-
     echo '  [WARN] Root passwords did not match.'
 done
 
 while true; do
     read -r -s -p "  Password for $USERNAME: " USER_PASS
     echo
-
     read -r -s -p "  Confirm password for $USERNAME: " USER_PASS2
     echo
 
     [[ -n "$USER_PASS" && "$USER_PASS" == "$USER_PASS2" ]] && break
-
     echo '  [WARN] User passwords did not match.'
 done
 
@@ -389,7 +368,6 @@ cleanup_secrets
 
 # Post-install verification
 info 'Verifying installation'
-
 VERIFY_FAILED=0
 
 if arch-chroot "$TARGET" findmnt --verify >/dev/null 2>&1; then
@@ -419,6 +397,20 @@ if arch-chroot "$TARGET" id "$USERNAME" >/dev/null 2>&1; then
 else
     warn "User '$USERNAME' is missing"
     VERIFY_FAILED=1
+fi
+
+if arch-chroot "$TARGET" grep -q '^GRUB_DISABLE_BOOTNEXT=true$' /etc/default/grub; then
+    ok 'GRUB BootNext menu entries disabled'
+else
+    warn 'GRUB_DISABLE_BOOTNEXT=true is missing'
+    VERIFY_FAILED=1
+fi
+
+if arch-chroot "$TARGET" grep -q 'EFI BootNext' /boot/grub/grub.cfg; then
+    warn 'EFI BootNext entries were found in grub.cfg'
+    VERIFY_FAILED=1
+else
+    ok 'No EFI BootNext entries in grub.cfg'
 fi
 
 echo

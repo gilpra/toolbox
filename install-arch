@@ -300,13 +300,24 @@ swap-priority = 100
 fs-type = swap
 ZRAM
 
+# GRUB defaults
+mkdir -p /etc/default
+touch /etc/default/grub
+
+# Disable GRUB BootNext menu entries.
+if grep -q '^GRUB_DISABLE_BOOTNEXT=' /etc/default/grub; then
+    sed -i 's/^GRUB_DISABLE_BOOTNEXT=.*/GRUB_DISABLE_BOOTNEXT=true/' /etc/default/grub
+else
+    printf '%s\n' 'GRUB_DISABLE_BOOTNEXT=true' >> /etc/default/grub
+fi
+
 # Disable zswap so zram is the swap-compression layer.
 if grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=' /etc/default/grub; then
     sed -i \
         's/^GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"$/GRUB_CMDLINE_LINUX_DEFAULT="\1 zswap.enabled=0"/' \
         /etc/default/grub
 else
-    echo 'GRUB_CMDLINE_LINUX_DEFAULT="zswap.enabled=0"' >> /etc/default/grub
+    printf '%s\n' 'GRUB_CMDLINE_LINUX_DEFAULT="zswap.enabled=0"' >> /etc/default/grub
 fi
 
 mkdir -p /etc/sysctl.d

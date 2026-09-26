@@ -77,19 +77,6 @@ curl -fsS --max-time 10 https://archlinux.org >/dev/null ||
     die 'No working Internet connection.'
 ok 'Internet connection works'
 
-if command -v reflector >/dev/null 2>&1; then
-    info 'Refreshing mirrorlist with reflector'
-
-    reflector \
-        --latest 10 \
-        --protocol https \
-        --country Indonesia,Singapore \
-        --completion-percent 100 \
-        --sort rate \
-        --save /etc/pacman.d/mirrorlist ||
-        warn 'reflector failed; keeping the existing mirrorlist.'
-fi
-
 # Input system configuration
 info 'System configuration'
 

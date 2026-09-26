@@ -15,8 +15,6 @@ sudo pacman -S --needed \
     lazygit \
     neovim \
     tree-sitter-cli \
-    nodejs \
-    npm \
     tmux
 
 echo "Generate ssh key..."

@@ -1,65 +1,103 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-LANG=("japanese" "korean")
+LANGUAGES=("japanese" "korean")
 FONT_DIR="$HOME/.local/share/fonts"
 
-echo "Language:"
-for i in ${!LANG[@]}; do
-    echo "$((i + 1)). ${LANG[i]^}"
+die() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+info() {
+    printf '\n==> %s\n' "$*"
+}
+
+command -v sudo >/dev/null 2>&1 || die 'sudo is required.'
+command -v xbps-install >/dev/null 2>&1 || die 'xbps-install not found.'
+command -v fc-cache >/dev/null 2>&1 || {
+    info 'Installing Fontconfig'
+    sudo xbps-install -y fontconfig
+}
+
+echo 'Language:'
+for i in "${!LANGUAGES[@]}"; do
+    printf '%d. %s\n' "$((i + 1))" "${LANGUAGES[i]^}"
 done
 
 echo
-read -p "Select Language (number) : " sel
+read -r -p 'Select Language (number): ' sel
 
-# Check if input not number
-if ! [[ $sel =~ ^[0-9]+$ ]]; then
-    echo "Input not number"
+[[ "$sel" =~ ^[0-9]+$ ]] || {
+    echo 'Input not number'
     exit 1
-fi
+}
 
-# Check if input out bound
 sel=$((sel - 1))
-if ((sel < 0 || sel >= "${#LANG[@]}")); then
-    echo "Options out of reach"
+
+((sel >= 0 && sel < ${#LANGUAGES[@]})) || {
+    echo 'Options out of range'
     exit 1
-fi
+}
 
-echo "${LANG[sel]}"
-if [[ "${LANG[sel]}" == "japanese" ]]; then
-    echo "You choose Japanese"
+LANG_NAME="${LANGUAGES[sel]}"
+
+case "$LANG_NAME" in
+japanese)
     FONT_FILE="NotoSansJP-VariableFont_wght.ttf"
-    LOCALES="ja_JP.UTF-8 UTF-8/ja_JP.UTF-8 UTF-8"
-
-elif [[ "${LANG[sel]}" == "korean" ]]; then
+    LOCALE_NAME="ja_JP.UTF-8"
+    LOCALE_LINE="ja_JP.UTF-8 UTF-8"
+    ;;
+korean)
     FONT_FILE="NotoSansKR-VariableFont_wght.ttf"
-    LOCALES="ko_KR.UTF-8 UTF-8/ko_KR.UTF-8 UTF-8"
+    LOCALE_NAME="ko_KR.UTF-8"
+    LOCALE_LINE="ko_KR.UTF-8 UTF-8"
+    ;;
+*)
+    die "Unsupported language: $LANG_NAME"
+    ;;
+esac
 
-fi
+echo "$LANG_NAME"
 
 mkdir -p "$FONT_DIR"
 
-FONT_LOCATE="$FONT_DIR/$FONT_FILE"
+FONT_LOCATION="$FONT_DIR/$FONT_FILE"
 
-if [ ! -f "$FONT_LOCATE" ]; then
-    echo
-    echo "Download japanese font..."
-    curl -fL -o "$FONT_LOCATE" "https://github.com/gilpra/assets-repo/raw/main/fonts/$FONT_FILE"
+if [[ ! -f "$FONT_LOCATION" ]]; then
+    info "Downloading ${FONT_FILE}"
+
+    curl -fL \
+        -o "$FONT_LOCATION" \
+        "https://github.com/gilpra/assets-repo/raw/main/fonts/$FONT_FILE"
 else
-    echo "Font already exists, skipping download."
+    echo 'Font already exists, skipping download.'
 fi
 
-echo
-echo "Refresh font cache"
-fc-cache -fv "$FONT_DIR"
+info 'Refreshing font cache'
+fc-cache -f "$FONT_DIR"
+
+info "Enabling ${LOCALE_NAME}"
+
+if grep -qE "^[[:space:]]*#?[[:space:]]*${LOCALE_NAME//./\\.}[[:space:]]+UTF-8[[:space:]]*$" \
+    /etc/default/libc-locales; then
+
+    sudo sed -i -E \
+        "s|^[[:space:]]*#?[[:space:]]*(${LOCALE_NAME//./\\.}[[:space:]]+UTF-8)[[:space:]]*$|\1|" \
+        /etc/default/libc-locales
+else
+    printf '%s\n' "$LOCALE_LINE" |
+        sudo tee -a /etc/default/libc-locales >/dev/null
+fi
+
+info 'Generating locale data'
+sudo xbps-reconfigure -f glibc-locales
 
 echo
-echo "Setting locales..."
-sudo sed -i "s/^# *${LOCALES}/" /etc/locale.gen
-
+echo 'Installation complete!'
 echo
-echo "Generating locales..."
-sudo locale-gen
-
+echo 'Enabled locale:'
+echo "  $LOCALE_NAME"
 echo
-echo "Installation complete!"
+echo 'Check with:'
+echo '  locale -a'

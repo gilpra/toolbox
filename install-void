@@ -1,0 +1,830 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+TARGET=/mnt
+TARGET_ARCH=x86_64
+VMD_PRESENT=0
+
+# Void Linux target configuration.
+MIRROR="${MIRROR:-https://mirror.freedif.org/voidlinux}"
+MIRROR="${MIRROR%/}"
+REPO="${MIRROR}/current"
+BOOTLOADER_ID="${BOOTLOADER_ID:-Void}"
+HARDWARECLOCK="${HARDWARECLOCK:-utc}"
+
+BTRFS_OPTS="${BTRFS_OPTS:-noatime,compress=zstd:1,discard=async}"
+
+# zramen configuration.
+ZRAM_COMP_ALGORITHM="${ZRAM_COMP_ALGORITHM:-zstd}"
+ZRAM_PRIORITY="${ZRAM_PRIORITY:-32767}"
+ZRAM_SIZE="${ZRAM_SIZE:-100}"
+ZRAM_MAX_SIZE="${ZRAM_MAX_SIZE:-65536}"
+ZRAMEN_SWAPON_DISCARD="${ZRAMEN_SWAPON_DISCARD:-both}"
+ZRAMEN_QUIET="${ZRAMEN_QUIET:-1}"
+
+# Helpers
+die() {
+    printf 'ERROR: %s\n' "$*" >&2
+    exit 1
+}
+
+info() {
+    printf '\n==> %s\n' "$*"
+}
+
+ok() {
+    printf '  [OK] %s\n' "$*"
+}
+
+warn() {
+    printf '  [WARN] %s\n' "$*" >&2
+}
+
+cleanup_secrets() {
+    unset ROOT_PASS ROOT_PASS2 USER_PASS USER_PASS2
+}
+
+trap cleanup_secrets EXIT
+
+set_rc() {
+    local key="$1" val="$2"
+
+    if grep -Eq "^(export[[:space:]]+)?#?${key}=" /etc/rc.conf; then
+        sed -i -E "s|^(export[[:space:]]+)?#?${key}=.*|${key}=\"${val}\"|" /etc/rc.conf
+    else
+        printf '%s="%s"\n' "$key" "$val" >> /etc/rc.conf
+    fi
+}
+
+remove_rc_var() {
+    local key="$1"
+    sed -i -E "/^(export[[:space:]]+)?#?${key}=.*$/d" /etc/rc.conf
+}
+
+enable_service() {
+    local svc="$1"
+
+    if [[ ! -d "/etc/sv/${svc}" ]]; then
+        warn "Service '${svc}' not found in /etc/sv"
+        return 1
+    fi
+
+    ln -sfn "/etc/sv/${svc}" "/etc/runit/runsvdir/default/${svc}"
+}
+
+disable_service() {
+    local svc="$1"
+    rm -f "/etc/runit/runsvdir/default/${svc}"
+}
+
+confirm_destructive() {
+    local answer
+
+    echo
+    echo '================================'
+    echo '!!! DESTRUCTIVE INSTALLATION !!!'
+    echo '================================'
+    echo
+    echo 'The following partitions WILL be erased:'
+    echo "  EFI  : $EFI_PART"
+    echo "  ROOT : $ROOT_PART"
+    echo
+    echo 'This installer assumes the selected EFI partition belongs'
+    echo 'to this Void installation. Do NOT select a shared Windows'
+    echo 'ESP if you need to preserve its files.'
+    echo
+    lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS "$DISK"
+    echo
+    read -r -p 'Continue with formatting? [y/N]: ' answer
+
+    [[ "$answer" =~ ^[Yy]$ ]] ||
+        die 'Aborted. No filesystem was erased.'
+}
+
+# Preflight
+[[ $EUID -eq 0 ]] ||
+    die 'Run this installer as root from the Void live ISO.'
+
+if [[ ! -d "$TARGET" ]]; then
+    mkdir -p "$TARGET"
+fi
+
+if mountpoint -q "$TARGET"; then
+    die "$TARGET is already mounted. Unmount it before starting."
+fi
+
+for cmd in \
+    xbps-install \
+    lsblk \
+    blkid \
+    wipefs \
+    cfdisk \
+    mkfs.fat \
+    mkfs.btrfs \
+    btrfs \
+    curl \
+    mount \
+    umount \
+    mountpoint \
+    udevadm \
+    swapon \
+    lsmod; do
+    command -v "$cmd" >/dev/null 2>&1 ||
+        die "Required command '$cmd' not found on this live system."
+done
+
+[[ -d /sys/firmware/efi/efivars ]] ||
+    die 'The Void ISO was not booted in UEFI mode.'
+
+if ! mountpoint -q /sys/firmware/efi/efivars; then
+    mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null || true
+fi
+
+mountpoint -q /sys/firmware/efi/efivars ||
+    die 'EFI variables are not mounted. Boot the ISO in UEFI mode.'
+
+[[ "$HARDWARECLOCK" == 'utc' || "$HARDWARECLOCK" == 'localtime' ]] ||
+    die "HARDWARECLOCK must be 'utc' or 'localtime'."
+
+[[ "$ZRAM_SIZE" =~ ^[0-9]+$ ]] ||
+    die 'ZRAM_SIZE must be an integer percentage.'
+
+[[ "$ZRAM_MAX_SIZE" =~ ^[0-9]+$ ]] ||
+    die 'ZRAM_MAX_SIZE must be an integer size in MiB.'
+
+# Time and network
+info 'Synchronizing system clock'
+
+if command -v chronyd >/dev/null 2>&1; then
+    if chronyd -q 'pool pool.ntp.org iburst' >/dev/null 2>&1; then
+        ok 'Clock synchronized'
+    else
+        warn 'Chrony could not synchronize the clock; verify the time before continuing.'
+    fi
+elif command -v ntpd >/dev/null 2>&1; then
+    if ntpd -q -n pool.ntp.org >/dev/null 2>&1; then
+        ok 'Clock synchronized'
+    else
+        warn 'ntpd could not synchronize the clock; verify the time before continuing.'
+    fi
+else
+    warn 'No NTP client is available on this ISO; verify the clock manually.'
+fi
+
+info 'Checking network'
+curl -fsS --max-time 10 "$REPO/" >/dev/null ||
+    die "No working Internet connection or repository is unreachable: $REPO"
+ok 'Internet connection works'
+
+if ! command -v xchroot >/dev/null 2>&1; then
+    info 'Installing xtools-minimal in the live environment'
+    xbps-install -Sy xtools-minimal ||
+        die 'Could not install xtools-minimal; xchroot is required.'
+fi
+
+command -v xchroot >/dev/null 2>&1 ||
+    die 'xchroot is not available on this live system.'
+
+# Input system configuration
+info 'System configuration'
+
+read -r -p '  Hostname: ' SYS_HOSTNAME
+[[ "$SYS_HOSTNAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]] ||
+    die "Invalid hostname '$SYS_HOSTNAME'."
+
+read -r -p '  Timezone (example: Asia/Jakarta): ' TIMEZONE
+[[ -f "/usr/share/zoneinfo/$TIMEZONE" ]] ||
+    die "Invalid timezone '$TIMEZONE'."
+
+read -r -p '  Username: ' USERNAME
+[[ "$USERNAME" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] ||
+    die "Invalid username '$USERNAME'."
+
+# Partition setup
+info 'Partition setup'
+
+read -r -p '  Target disk (example: /dev/nvme0n1): ' DISK
+[[ -b "$DISK" ]] ||
+    die "Disk '$DISK' does not exist."
+
+[[ "$(lsblk -dn -o TYPE "$DISK" | tr -d '[:space:]')" == 'disk' ]] ||
+    die "'$DISK' is not a whole disk."
+
+if lsblk -nrpo MOUNTPOINTS "$DISK" | grep -q '[^[:space:]]'; then
+    die "One or more partitions on '$DISK' are still mounted."
+fi
+
+if swapon --show=NAME --noheadings --raw | grep -Fxq "$DISK"; then
+    die "'$DISK' is currently used as active swap."
+fi
+
+echo
+lsblk -o NAME,SIZE,TYPE,FSTYPE,FSAVAIL,FSUSE%,MOUNTPOINTS "$DISK"
+echo
+
+cfdisk "$DISK"
+
+if command -v partprobe >/dev/null 2>&1; then
+    partprobe "$DISK"
+elif command -v blockdev >/dev/null 2>&1; then
+    blockdev --rereadpt "$DISK" || true
+fi
+
+udevadm settle || true
+
+[[ "$(lsblk -dn -o PTTYPE "$DISK")" == 'gpt' ]] ||
+    die "'$DISK' is not GPT."
+
+read -r -p '  EFI System Partition: ' EFI_PART
+read -r -p '  Linux root partition: ' ROOT_PART
+
+[[ -b "$EFI_PART" ]] ||
+    die "EFI partition '$EFI_PART' does not exist."
+
+[[ -b "$ROOT_PART" ]] ||
+    die "Root partition '$ROOT_PART' does not exist."
+
+[[ "$EFI_PART" != "$ROOT_PART" ]] ||
+    die 'EFI and root partitions must be different.'
+
+DISK_NAME="$(basename "$DISK")"
+
+for part in "$EFI_PART" "$ROOT_PART"; do
+    [[ "$(lsblk -no PKNAME "$part")" == "$DISK_NAME" ]] ||
+        die "'$part' is not a partition of '$DISK'."
+
+    if swapon --show=NAME --noheadings --raw | grep -Fxq "$part"; then
+        die "'$part' is currently active swap."
+    fi
+done
+
+EFI_TYPE="$(lsblk -no PARTTYPE "$EFI_PART")"
+
+[[ "${EFI_TYPE^^}" == 'C12A7328-F81F-11D2-BA4B-00A0C93EC93B' ]] ||
+    die "'$EFI_PART' is not an EFI System Partition."
+
+# VMD detection
+if lsmod | grep -q '^vmd\b'; then
+    VMD_PRESENT=1
+    echo
+    echo 'Intel VMD detected.'
+fi
+
+confirm_destructive
+
+# Filesystems
+info 'Formatting filesystems'
+
+wipefs -af "$EFI_PART"
+wipefs -af "$ROOT_PART"
+
+mkfs.fat -F32 -n EFI "$EFI_PART"
+mkfs.btrfs -f -L VoidRoot "$ROOT_PART"
+
+# Btrfs subvolumes
+info 'Creating Btrfs subvolumes'
+
+mount "$ROOT_PART" "$TARGET"
+
+for sv in @ @home @cache @log; do
+    btrfs subvolume create "$TARGET/$sv"
+done
+
+umount "$TARGET"
+
+# Btrfs mounts
+info 'Mounting Btrfs subvolumes'
+
+mount -o "$BTRFS_OPTS,subvol=@" "$ROOT_PART" "$TARGET"
+
+mkdir -p \
+    "$TARGET/home" \
+    "$TARGET/var/cache" \
+    "$TARGET/var/log" \
+    "$TARGET/boot/efi"
+
+mount -o "$BTRFS_OPTS,subvol=@home" "$ROOT_PART" "$TARGET/home"
+mount -o "$BTRFS_OPTS,subvol=@cache" "$ROOT_PART" "$TARGET/var/cache"
+mount -o "$BTRFS_OPTS,subvol=@log" "$ROOT_PART" "$TARGET/var/log"
+mount "$EFI_PART" "$TARGET/boot/efi"
+
+# Base installation
+info 'Installing base system'
+
+mkdir -p "$TARGET/var/db/xbps/keys"
+cp /var/db/xbps/keys/* "$TARGET/var/db/xbps/keys/"
+
+PACKAGES=(
+    base-system
+    base-devel
+    linux
+    sudo
+    git
+    neovim
+    NetworkManager
+    wpa_supplicant
+    dbus
+    elogind
+    polkit
+    pipewire
+    alsa-pipewire
+    linux-firmware-intel
+    linux-firmware-network
+    sof-firmware
+    grub
+    grub-x86_64-efi
+    efibootmgr
+    zramen
+    power-profiles-daemon
+    thermald
+    chrony
+    void-repo-nonfree
+)
+
+XBPS_ARCH="$TARGET_ARCH" \
+    xbps-install -Sy \
+    -R "$REPO" \
+    -r "$TARGET" \
+    "${PACKAGES[@]}"
+
+# fstab
+info 'Generating fstab manually'
+
+ROOT_UUID="$(blkid -s UUID -o value "$ROOT_PART")"
+EFI_UUID="$(blkid -s UUID -o value "$EFI_PART")"
+
+[[ -n "$ROOT_UUID" && -n "$EFI_UUID" ]] ||
+    die 'Could not determine partition UUIDs.'
+
+cat > "$TARGET/etc/fstab" <<FSTAB
+# <file system>     <dir>       <type>  <options>                                  <dump> <pass>
+UUID=${ROOT_UUID}   /           btrfs   ${BTRFS_OPTS},subvol=@                     0 0
+UUID=${ROOT_UUID}   /home       btrfs   ${BTRFS_OPTS},subvol=@home                 0 0
+UUID=${ROOT_UUID}   /var/cache  btrfs   ${BTRFS_OPTS},subvol=@cache                0 0
+UUID=${ROOT_UUID}   /var/log    btrfs   ${BTRFS_OPTS},subvol=@log                  0 0
+UUID=${EFI_UUID}    /boot/efi   vfat    defaults,noatime,umask=0077                0 2
+tmpfs               /tmp        tmpfs   defaults,nosuid,nodev                      0 0
+FSTAB
+
+# Chroot configuration
+info 'Configuring installed system with xchroot'
+
+xchroot "$TARGET" /bin/bash -s -- \
+    "$TIMEZONE" \
+    "$HARDWARECLOCK" \
+    "$SYS_HOSTNAME" \
+    "$USERNAME" \
+    "$VMD_PRESENT" \
+    "$MIRROR" \
+    "$BOOTLOADER_ID" \
+    "$ZRAM_COMP_ALGORITHM" \
+    "$ZRAM_PRIORITY" \
+    "$ZRAM_SIZE" \
+    "$ZRAM_MAX_SIZE" \
+    "$ZRAMEN_SWAPON_DISCARD" \
+    "$ZRAMEN_QUIET" <<'CHROOT'
+set -Eeuo pipefail
+
+TIMEZONE="$1"
+HARDWARECLOCK="$2"
+SYS_HOSTNAME="$3"
+USERNAME="$4"
+VMD_PRESENT="$5"
+MIRROR="$6"
+BOOTLOADER_ID="$7"
+ZRAM_COMP_ALGORITHM="$8"
+ZRAM_PRIORITY="$9"
+ZRAM_SIZE="${10}"
+ZRAM_MAX_SIZE="${11}"
+ZRAMEN_SWAPON_DISCARD="${12}"
+ZRAMEN_QUIET="${13}"
+
+set_rc() {
+    local key="$1" val="$2"
+
+    if grep -Eq "^(export[[:space:]]+)?#?${key}=" /etc/rc.conf; then
+        sed -i -E "s|^(export[[:space:]]+)?#?${key}=.*|${key}=\"${val}\"|" /etc/rc.conf
+    else
+        printf '%s="%s"\n' "$key" "$val" >> /etc/rc.conf
+    fi
+}
+
+remove_rc_var() {
+    local key="$1"
+    sed -i -E "/^(export[[:space:]]+)?#?${key}=.*$/d" /etc/rc.conf
+}
+
+enable_service() {
+    local svc="$1"
+
+    [[ -d "/etc/sv/${svc}" ]] ||
+        { printf '[WARN] Missing service: %s\n' "$svc" >&2; return 1; }
+
+    ln -sfn "/etc/sv/${svc}" "/etc/runit/runsvdir/default/${svc}"
+}
+
+disable_service() {
+    local svc="$1"
+    rm -f "/etc/runit/runsvdir/default/${svc}"
+}
+
+# XBPS repositories
+mkdir -p /etc/xbps.d
+
+# Persist the selected mirror in a clean, Void-supported way.
+cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
+sed -i "s|https://repo-default.voidlinux.org|${MIRROR}|g" \
+    /etc/xbps.d/*-repository-*.conf
+
+# The nonfree repository package was installed during bootstrap and adds
+# its repository definition under /usr/share/xbps.d. Because the glob above
+# covers all repository definitions, it is copied and rewritten together
+# with the main repository configuration.
+xbps-install -S
+
+# Intel microcode lives in nonfree. Void requires a new initramfs after
+# installing intel-ucode; final xbps-reconfigure below handles that.
+xbps-install -y intel-ucode
+
+# Time / locale / hostname
+
+ln -sf "/usr/share/zoneinfo/${TIMEZONE}" /etc/localtime
+
+# TIMEZONE in rc.conf would override /etc/localtime on boot, so ensure it is
+# absent. HARDWARECLOCK is the relevant rc.conf variable on Void.
+remove_rc_var TIMEZONE
+set_rc HARDWARECLOCK "$HARDWARECLOCK"
+set_rc KEYMAP us
+
+hwclock --systohc
+
+# glibc locale.
+sed -i 's/^[[:space:]]*#*[[:space:]]*en_US.UTF-8 UTF-8[[:space:]]*$/en_US.UTF-8 UTF-8/' \
+    /etc/default/libc-locales
+
+grep -qxF 'en_US.UTF-8 UTF-8' /etc/default/libc-locales ||
+    printf '%s\n' 'en_US.UTF-8 UTF-8' >> /etc/default/libc-locales
+
+printf '%s\n' 'LANG=en_US.UTF-8' > /etc/locale.conf
+
+xbps-reconfigure -f glibc-locales
+
+printf '%s\n' "$SYS_HOSTNAME" > /etc/hostname
+
+cat > /etc/hosts <<HOSTS
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   ${SYS_HOSTNAME}.localdomain ${SYS_HOSTNAME}
+HOSTS
+
+# User
+if ! id "$USERNAME" >/dev/null 2>&1; then
+    useradd -m -G wheel,network -s /bin/bash "$USERNAME"
+else
+    usermod -aG wheel,network "$USERNAME"
+fi
+
+# sudo
+mkdir -p /etc/sudoers.d
+
+cat > /etc/sudoers.d/99-wheel <<'SUDO'
+%wheel ALL=(ALL:ALL) ALL
+SUDO
+
+chmod 440 /etc/sudoers.d/99-wheel
+visudo -cf /etc/sudoers.d/99-wheel
+
+# NetworkManager + wpa_supplicant
+mkdir -p /etc/NetworkManager/conf.d
+
+cat > /etc/NetworkManager/conf.d/10-wifi-backend.conf <<'NM'
+[device]
+wifi.backend=wpa_supplicant
+NM
+
+rm -f /etc/NetworkManager/conf.d/wifi_backend.conf
+
+disable_service iwd
+disable_service wpa_supplicant
+disable_service dhcpcd
+disable_service wicd
+disable_service connmand
+
+enable_service dbus
+enable_service NetworkManager
+
+# elogind handles the desktop session / seat / power-button integration.
+# This conflicts with a separately enabled acpid service.
+disable_service acpid
+
+enable_service elogind
+enable_service polkitd
+
+# Time synchronization
+disable_service ntpd
+disable_service openntpd
+
+enable_service chronyd
+
+# PipeWire
+mkdir -p /etc/pipewire/pipewire.conf.d
+
+ln -sfn \
+    /usr/share/examples/wireplumber/10-wireplumber.conf \
+    /etc/pipewire/pipewire.conf.d/10-wireplumber.conf
+
+ln -sfn \
+    /usr/share/examples/pipewire/20-pipewire-pulse.conf \
+    /etc/pipewire/pipewire.conf.d/20-pipewire-pulse.conf
+
+mkdir -p /etc/alsa/conf.d
+
+ln -sfn \
+    /usr/share/alsa/alsa.conf.d/50-pipewire.conf \
+    /etc/alsa/conf.d/50-pipewire.conf
+
+ln -sfn \
+    /usr/share/alsa/alsa.conf.d/99-pipewire-default.conf \
+    /etc/alsa/conf.d/99-pipewire-default.conf
+
+# Do not enable the experimental system-wide PipeWire service.
+disable_service pipewire
+
+# zramen
+cat > /etc/sv/zramen/conf <<ZRAM
+export ZRAM_COMP_ALGORITHM=${ZRAM_COMP_ALGORITHM}
+export ZRAM_PRIORITY=${ZRAM_PRIORITY}
+export ZRAM_SIZE=${ZRAM_SIZE}
+export ZRAM_MAX_SIZE=${ZRAM_MAX_SIZE}
+export ZRAMEN_SWAPON_DISCARD=${ZRAMEN_SWAPON_DISCARD}
+export ZRAMEN_QUIET=${ZRAMEN_QUIET}
+ZRAM
+
+enable_service zramen
+
+mkdir -p /etc/sysctl.d
+
+cat > /etc/sysctl.d/99-zram-swappiness.conf <<'SYSCTL'
+vm.swappiness = 150
+SYSCTL
+
+# Laptop power management
+enable_service power-profiles-daemon
+enable_service thermald
+
+# Dracut
+mkdir -p /etc/dracut.conf.d
+
+cat > /etc/dracut.conf.d/10-void.conf <<'DRACUT'
+hostonly="yes"
+add_drivers+=" btrfs "
+DRACUT
+
+if [[ "$VMD_PRESENT" -eq 1 ]]; then
+    cat > /etc/dracut.conf.d/20-vmd.conf <<'VMD'
+add_drivers+=" vmd nvme "
+VMD
+fi
+
+# GRUB
+mkdir -p /etc/default
+touch /etc/default/grub
+
+# keep GRUB from exposing EFI BootNext entries.
+if grep -q '^GRUB_DISABLE_BOOTNEXT=' /etc/default/grub; then
+    sed -i 's/^GRUB_DISABLE_BOOTNEXT=.*/GRUB_DISABLE_BOOTNEXT=true/' \
+        /etc/default/grub
+else
+    printf '%s\n' 'GRUB_DISABLE_BOOTNEXT=true' >> /etc/default/grub
+fi
+
+# use zram rather than zswap as the compressed swap layer
+if grep -Eq '^GRUB_CMDLINE_LINUX_DEFAULT=' /etc/default/grub; then
+    current_cmdline="$(sed -n \
+        's/^GRUB_CMDLINE_LINUX_DEFAULT="\([^"]*\)".*/\1/p' \
+        /etc/default/grub)"
+
+    if [[ " $current_cmdline " != *' zswap.enabled=0 '* ]]; then
+        current_cmdline="${current_cmdline:+$current_cmdline }zswap.enabled=0"
+        sed -i \
+            "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"${current_cmdline}\"|" \
+            /etc/default/grub
+    fi
+else
+    printf '%s\n' 'GRUB_CMDLINE_LINUX_DEFAULT="zswap.enabled=0"' \
+        >> /etc/default/grub
+fi
+
+grub-install \
+    --target=x86_64-efi \
+    --efi-directory=/boot/efi \
+    --bootloader-id="$BOOTLOADER_ID"
+
+# Explicit generation retained from the Arch-derived workflow.
+grub-mkconfig -o /boot/grub/grub.cfg
+
+# Final Void package configuration:
+# generates dracut initramfs and runs kernel/GRUB hooks.
+xbps-reconfigure -fa
+CHROOT
+
+# Passwords
+info 'Setting account passwords'
+
+while true; do
+    read -r -s -p '  Root password: ' ROOT_PASS
+    echo
+    read -r -s -p '  Confirm root password: ' ROOT_PASS2
+    echo
+
+    [[ -n "$ROOT_PASS" && "$ROOT_PASS" == "$ROOT_PASS2" ]] && break
+    echo '  [WARN] Root passwords did not match.'
+done
+
+while true; do
+    read -r -s -p "  Password for $USERNAME: " USER_PASS
+    echo
+    read -r -s -p "  Confirm password for $USERNAME: " USER_PASS2
+    echo
+
+    [[ -n "$USER_PASS" && "$USER_PASS" == "$USER_PASS2" ]] && break
+    echo '  [WARN] User passwords did not match.'
+done
+
+printf 'root:%s\n' "$ROOT_PASS" |
+    xchroot "$TARGET" chpasswd -c SHA512
+
+printf '%s:%s\n' "$USERNAME" "$USER_PASS" |
+    xchroot "$TARGET" chpasswd -c SHA512
+
+cleanup_secrets
+
+# Verify that both accounts have a password hash and are not locked.
+# Read /etc/shadow directly so xchroot diagnostic output cannot interfere.
+password_entry_ok() {
+    local account="$1"
+    awk -F: -v user="$account" \
+        '$1 == user { found=1; if ($2 != "" && $2 !~ /^[!*]/) good=1 } END { exit !(found && good) }' \
+        "$TARGET/etc/shadow"
+}
+
+if password_entry_ok root && password_entry_ok "$USERNAME"; then
+    ok 'Root and user password entries are active'
+else
+    warn 'One or more password entries are missing or locked'
+    exit 1
+fi
+
+# Post-install verification
+info 'Verifying installation'
+VERIFY_FAILED=0
+
+if xchroot "$TARGET" findmnt --verify >/dev/null 2>&1; then
+    ok 'fstab verification passed'
+else
+    warn 'fstab verification failed'
+    VERIFY_FAILED=1
+fi
+
+for file in \
+    "$TARGET/boot/efi/EFI/${BOOTLOADER_ID}/grubx64.efi" \
+    "$TARGET/boot/grub/grub.cfg"; do
+
+    if [[ -f "$file" ]]; then
+        ok "Found: ${file#"$TARGET"}"
+    else
+        warn "Missing: ${file#"$TARGET"}"
+        VERIFY_FAILED=1
+    fi
+done
+
+if compgen -G "$TARGET/boot/vmlinuz-*" >/dev/null; then
+    ok 'Kernel found in /boot'
+else
+    warn 'No kernel image found in /boot'
+    VERIFY_FAILED=1
+fi
+
+if compgen -G "$TARGET/boot/initramfs-*.img" >/dev/null; then
+    ok 'Initramfs found in /boot'
+else
+    warn 'No initramfs found in /boot'
+    VERIFY_FAILED=1
+fi
+
+if xchroot "$TARGET" xbps-query wpa_supplicant >/dev/null 2>&1; then
+    ok 'wpa_supplicant installed for NetworkManager'
+else
+    warn 'wpa_supplicant is missing'
+    VERIFY_FAILED=1
+fi
+
+if xchroot "$TARGET" xbps-query intel-ucode >/dev/null 2>&1; then
+    ok 'intel-ucode installed'
+else
+    warn 'intel-ucode is missing'
+    VERIFY_FAILED=1
+fi
+
+for svc in \
+    dbus \
+    NetworkManager \
+    elogind \
+    polkitd \
+    chronyd \
+    power-profiles-daemon \
+    thermald \
+    zramen; do
+
+    if [[ -L "$TARGET/etc/runit/runsvdir/default/$svc" ]]; then
+        ok "Service enabled: $svc"
+    else
+        warn "Service not enabled: $svc"
+        VERIFY_FAILED=1
+    fi
+done
+
+for svc in \
+    dhcpcd \
+    wpa_supplicant \
+    iwd \
+    acpid; do
+
+    if [[ -e "$TARGET/etc/runit/runsvdir/default/$svc" ]]; then
+        warn "Conflicting service still enabled: $svc"
+        VERIFY_FAILED=1
+    fi
+done
+
+if xchroot "$TARGET" id "$USERNAME" >/dev/null 2>&1; then
+    ok "User '$USERNAME' exists"
+else
+    warn "User '$USERNAME' is missing"
+    VERIFY_FAILED=1
+fi
+
+if xchroot "$TARGET" id -nG "$USERNAME" |
+    tr ' ' '\n' | grep -qx 'network'; then
+    ok "User '$USERNAME' is in the network group"
+else
+    warn "User '$USERNAME' is not in the network group"
+    VERIFY_FAILED=1
+fi
+
+if xchroot "$TARGET" grep -q '^LANG=en_US.UTF-8$' /etc/locale.conf; then
+    ok 'Locale configured'
+else
+    warn 'Locale is not configured as expected'
+    VERIFY_FAILED=1
+fi
+
+if xchroot "$TARGET" readlink /etc/localtime |
+    grep -qx "/usr/share/zoneinfo/${TIMEZONE}"; then
+    ok "Timezone configured: $TIMEZONE"
+else
+    warn "Timezone link is not configured as expected"
+    VERIFY_FAILED=1
+fi
+
+if xchroot "$TARGET" grep -Eq "^HARDWARECLOCK=\"${HARDWARECLOCK}\"$" /etc/rc.conf; then
+    ok "Hardware clock configured: $HARDWARECLOCK"
+else
+    warn 'HARDWARECLOCK is not configured as expected'
+    VERIFY_FAILED=1
+fi
+
+if xchroot "$TARGET" grep -qx 'export ZRAMEN_QUIET=1' /etc/sv/zramen/conf; then
+    ok 'zramen quiet mode enabled'
+else
+    warn 'zramen quiet mode is not enabled'
+    VERIFY_FAILED=1
+fi
+
+if xchroot "$TARGET" grep -qx 'GRUB_DISABLE_BOOTNEXT=true' /etc/default/grub; then
+    ok 'GRUB BootNext menu entries disabled'
+else
+    warn 'GRUB_DISABLE_BOOTNEXT=true is missing'
+    VERIFY_FAILED=1
+fi
+
+echo
+
+if ((VERIFY_FAILED == 0)); then
+    ok 'Installation checks passed.'
+    echo
+    echo 'Installation complete.'
+    echo 'Review /mnt/etc/fstab before rebooting if desired.'
+    echo 'The selected EFI and root partitions were formatted.'
+
+    if umount -R "$TARGET"; then
+        ok 'Target filesystems unmounted.'
+    else
+        warn "Could not completely unmount $TARGET."
+        exit 1
+    fi
+else
+    warn 'One or more installation checks failed.'
+    echo 'The target has been left mounted for inspection.'
+    echo 'Do NOT reboot until the failures are understood.'
+    exit 1
+fi

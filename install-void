@@ -6,7 +6,7 @@ TARGET_ARCH=x86_64
 VMD_PRESENT=0
 
 # Void Linux target configuration.
-MIRROR="${MIRROR:-https://repo-fastly.voidlinux.org}"
+MIRROR="${MIRROR:-https://mirror.freedif.org/voidlinux}"
 MIRROR="${MIRROR%/}"
 REPO="${MIRROR}/current"
 BOOTLOADER_ID="${BOOTLOADER_ID:-Void}"

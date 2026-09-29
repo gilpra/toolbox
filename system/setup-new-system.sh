@@ -58,7 +58,7 @@ git clone --depth 1 https://github.com/gilpra/nvim.git "$HOME/.config/nvim"
 info 'Installing dotfiles'
 
 rm -rf "$HOME/.dotfiles"
-git clone --depth 1 https://codeberg.org/gilpra/dotfiles.git "$HOME/.dotfiles"
+git clone -b void --depth 1 https://github.com/gilpra/dotfiles.git "$HOME/.dotfiles"
 
 info 'Creating Games directory'
 

@@ -8,7 +8,7 @@ if command -v snapper >/dev/null 2>&1; then
 fi
 
 echo "Installing package..."
-sudo pacman -S snapper btrfs-assistant
+sudo xbps-install -y snapper
 
 echo "Configurate subvolume root..."
 sudo snapper -c root create-config /
@@ -19,4 +19,3 @@ sudo chmod a+rx /.snapshots
 echo "Disable snapper timeline service..."
 sudo sed -i 's/^TIMELINE_CREATE="yes"/TIMELINE_CREATE="no"/' /etc/snapper/configs/root
 sudo sed -i 's/^TIMELINE_CLEANUP="yes"/TIMELINE_CLEANUP="no"/' /etc/snapper/configs/root
-sudo systemctl disable --now snapper-timeline.timer

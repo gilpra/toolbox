@@ -1,39 +1,52 @@
 #!/usr/bin/env bash
-
 set -Eeuo pipefail
 
-if [[ $EUID -eq 0 ]]; then
-    echo "ERROR: Run this script as your normal user."
+die() {
+    printf 'ERROR: %s\n' "$*" >&2
     exit 1
-fi
+}
 
-if ! command -v sudo >/dev/null 2>&1; then
-    echo "ERROR: sudo is required."
-    exit 1
-fi
+info() {
+    printf '\n==> %s\n' "$*"
+}
 
-if ! command -v xbps-install >/dev/null 2>&1 ||
-    ! command -v xbps-query >/dev/null 2>&1; then
-    echo "ERROR: This script requires Void Linux (xbps)."
-    exit 1
-fi
+warn() {
+    printf '  [WARN] %s\n' "$*" >&2
+}
 
-if [[ $(uname -m) != "x86_64" ]]; then
-    echo "ERROR: This gaming setup requires x86_64."
-    exit 1
-fi
+ok() {
+    printf '  [OK] %s\n' "$*"
+}
 
-if [[ ! -e /usr/lib/libc.so.6 ]]; then
-    echo "ERROR: This script requires a glibc installation."
-    exit 1
-fi
+[[ $EUID -ne 0 ]] ||
+    die 'Run this script as your normal user; sudo is used for privileged operations.'
 
-echo
-echo "==> Updating Void Linux"
+command -v sudo >/dev/null 2>&1 ||
+    die 'sudo is required.'
+
+command -v xbps-install >/dev/null 2>&1 ||
+    die 'xbps-install not found.'
+
+command -v xbps-query >/dev/null 2>&1 ||
+    die 'xbps-query not found.'
+
+case "$(uname -m)" in
+x86_64) ;;
+*)
+    die "This gaming setup expects x86_64; detected $(uname -m)."
+    ;;
+esac
+
+[[ -e /usr/lib/libc.so.6 ]] ||
+    die 'This script is intended for a glibc installation.'
+
+info 'Updating Void Linux'
 sudo xbps-install -Su
 
-echo
-echo "==> Enabling repositories"
+info 'Enabling Void repositories'
+
+# Steam on x86_64 needs multilib. Void's own Steam package documentation
+# instructs users to enable both multilib and multilib/nonfree.
 sudo xbps-install -y \
     void-repo-nonfree \
     void-repo-multilib \
@@ -41,8 +54,8 @@ sudo xbps-install -y \
 
 sudo xbps-install -S
 
-echo
-echo "==> Installing Intel graphics and gaming packages"
+info 'Installing Intel graphics and gaming packages'
+
 sudo xbps-install -y \
     mesa-dri \
     vulkan-loader \
@@ -50,11 +63,12 @@ sudo xbps-install -y \
     intel-video-accel \
     intel-media-driver \
     gamemode \
-    gamescope \
-    steam
+    gamescope
 
-echo
-echo "==> Installing 32-bit libraries"
+info 'Installing 32-bit graphics/runtime libraries'
+
+# These are the generic multilib libraries documented by Void for Steam,
+# plus the Intel Vulkan ICD required for 32-bit Vulkan applications.
 sudo xbps-install -y \
     libgcc-32bit \
     libstdc++-32bit \
@@ -65,68 +79,95 @@ sudo xbps-install -y \
     vulkan-loader-32bit \
     mesa-vulkan-intel-32bit
 
-echo
-echo "==> Configuring user groups"
+info 'Refreshing dynamic linker cache'
+sudo ldconfig
 
-if getent group video >/dev/null; then
+info 'Installing Steam, Prism Launcher, and Java'
+
+# Steam is packaged in Void's nonfree repository.
+sudo xbps-install -y steam
+
+# Steam's package installs its own udev rules. Ensure the current user is
+# in video as recommended by Void's Steam package documentation.
+if getent group video >/dev/null 2>&1; then
     sudo usermod -aG video "$USER"
-    echo "[OK] $USER added to video"
+    ok "User '$USER' added to video group"
 fi
 
-if getent group gamemode >/dev/null; then
-    sudo usermod -aG gamemode "$USER"
-    echo "[OK] $USER added to gamemode"
-fi
+# NTSYNC replacement for Arch's ntsync-autoload.
+info 'Configuring NTSYNC when supported by the current Void kernel'
 
-echo
-echo "==> Configuring NTSYNC"
+KERNEL_CONFIG="/boot/config-$(uname -r)"
 
-if sudo modprobe ntsync 2>/dev/null; then
-    echo ntsync | sudo tee /etc/modules-load.d/ntsync.conf >/dev/null
-    echo "[OK] NTSYNC enabled"
+if [[ -r "$KERNEL_CONFIG" ]] && grep -q '^CONFIG_NTSYNC=y$' "$KERNEL_CONFIG"; then
+    ok 'NTSYNC is built into the kernel'
+elif [[ -r "$KERNEL_CONFIG" ]] && grep -q '^CONFIG_NTSYNC=m$' "$KERNEL_CONFIG"; then
+    if sudo modprobe ntsync; then
+        printf '%s\n' ntsync | sudo tee /etc/modules-load.d/ntsync.conf >/dev/null
+        ok 'NTSYNC module loaded and configured for boot'
+    else
+        warn 'Kernel advertises NTSYNC as a module, but modprobe failed.'
+    fi
+elif modprobe -n ntsync >/dev/null 2>&1; then
+    if sudo modprobe ntsync; then
+        printf '%s\n' ntsync | sudo tee /etc/modules-load.d/ntsync.conf >/dev/null
+        ok 'NTSYNC module configured for boot'
+    else
+        warn 'NTSYNC module was found but could not be loaded.'
+    fi
+elif [[ -e /sys/module/ntsync ]]; then
+    ok 'NTSYNC is already active'
 else
-    echo "[WARN] NTSYNC is not available in the current kernel."
+    warn 'NTSYNC is not available in the current kernel; ntsync-autoload has no direct Void package equivalent.'
 fi
 
-echo
-echo "==> Configuring GameMode"
+# GameMode
+info 'Configuring GameMode'
+
+if ! getent group gamemode >/dev/null 2>&1; then
+    warn 'The gamemode group was not created by the installed package.'
+else
+    sudo usermod -aG gamemode "$USER"
+    ok "User '$USER' added to gamemode group"
+fi
 
 mkdir -p "$HOME/.config"
 
-cat >"$HOME/.config/gamemode.ini" <<'EOF'
+cat >"$HOME/.config/gamemode.ini" <<'GAMEMODE'
 [general]
 desiredgov=performance
 renice=5
 inhibit_screensaver=1
-EOF
+GAMEMODE
 
-echo "[OK] GameMode configuration written"
+info 'Verifying GameMode'
 
-echo
-echo "==> Verifying GameMode"
-
-if gamemoded -t >/dev/null 2>&1; then
-    echo "[OK] GameMode test passed"
+if getent group gamemode | grep -qw "$USER"; then
+    ok 'GameMode group membership configured'
 else
-    echo "[WARN] GameMode test failed"
-    echo "[WARN] Log out and back in after group changes."
+    warn "User '$USER' is not listed in the gamemode group."
 fi
 
-echo
-echo "==> Verifying Vulkan"
+if gamemoded -t >/dev/null 2>&1; then
+    ok 'GameMode test passed'
+else
+    warn 'gamemoded -t did not pass in the current session.'
+    warn 'Log out and log back in so the new gamemode/video group membership is active.'
+fi
+
+info 'Verifying Vulkan'
 
 if command -v vulkaninfo >/dev/null 2>&1; then
     if vulkaninfo --summary >/dev/null 2>&1; then
-        echo "[OK] Vulkan is working"
+        ok 'Vulkan is working'
     else
-        echo "[WARN] vulkaninfo --summary failed"
+        warn 'vulkaninfo --summary failed'
     fi
 else
-    echo "[WARN] vulkaninfo is not installed"
+    warn 'vulkaninfo is not installed; Vulkan packages are installed but runtime verification is skipped.'
 fi
 
-echo
-echo "==> Verifying installed gaming packages"
+info 'Verifying installed gaming stack'
 
 for pkg in \
     mesa-dri \
@@ -140,20 +181,27 @@ for pkg in \
     gamescope \
     steam; do
 
-    if xbps-query -S "$pkg" >/dev/null 2>&1; then
-        echo "[OK] $pkg installed"
+    if xbps-query -l | grep -q "^ii ${pkg}-"; then
+        ok "$pkg installed"
     else
-        echo "[WARN] $pkg is missing"
+        warn "$pkg is missing"
     fi
 done
 
 echo
-echo "Gaming setup complete."
+echo 'Gaming setup complete.'
 echo
-echo "Useful verification commands:"
-echo "  vulkaninfo --summary"
-echo "  gamemoded -t"
-echo "  glxinfo -B"
-echo "  steam"
+echo 'Installed:'
+echo '  Intel Mesa/OpenGL + Vulkan (64-bit and 32-bit)'
+echo '  Intel VA-API'
+echo '  GameMode'
+echo '  Gamescope'
+echo '  Steam'
 echo
-echo "Log out and back in for group membership changes to take effect."
+echo 'Useful verification commands:'
+echo '  vulkaninfo --summary'
+echo '  gamemoded -t'
+echo '  glxinfo -B'
+echo '  steam'
+echo
+echo 'Log out and back in after the first run so group membership changes take effect.'

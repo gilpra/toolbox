@@ -193,7 +193,7 @@ info 'Installing base system'
 pacstrap -K "$TARGET" \
     base \
     base-devel \
-    linux \
+    linux-zen \
     linux-firmware \
     intel-ucode \
     btrfs-progs \

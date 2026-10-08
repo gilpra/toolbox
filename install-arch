@@ -378,8 +378,8 @@ fi
 for file in \
     "$TARGET/boot/efi/EFI/GRUB/grubx64.efi" \
     "$TARGET/boot/grub/grub.cfg" \
-    "$TARGET/boot/vmlinuz-linux" \
-    "$TARGET/boot/initramfs-linux.img" \
+    "$TARGET/boot/vmlinuz-linux-zen" \
+    "$TARGET/boot/initramfs-linux-zen.img" \
     "$TARGET/boot/intel-ucode.img"; do
 
     if [[ -f "$file" ]]; then

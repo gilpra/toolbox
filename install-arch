@@ -210,9 +210,7 @@ pacstrap -K "$TARGET" \
     sof-firmware \
     grub \
     efibootmgr \
-    zram-generator \
-    power-profiles-daemon \
-    thermald
+    zram-generator
 
 # fstab
 info 'Generating fstab'
@@ -275,8 +273,6 @@ IWD
 # Services
 systemctl enable NetworkManager.service
 systemctl enable systemd-timesyncd.service
-systemctl enable power-profiles-daemon.service
-systemctl enable thermald.service
 
 # zram
 cat > /etc/systemd/zram-generator.conf <<'ZRAM'

@@ -148,60 +148,7 @@ else
     warn "User '$USER' is not listed in the gamemode group."
 fi
 
-if gamemoded -t >/dev/null 2>&1; then
-    ok 'GameMode test passed'
-else
-    warn 'gamemoded -t did not pass in the current session.'
-    warn 'Log out and log back in so the new gamemode/video group membership is active.'
-fi
-
-info 'Verifying Vulkan'
-
-if command -v vulkaninfo >/dev/null 2>&1; then
-    if vulkaninfo --summary >/dev/null 2>&1; then
-        ok 'Vulkan is working'
-    else
-        warn 'vulkaninfo --summary failed'
-    fi
-else
-    warn 'vulkaninfo is not installed; Vulkan packages are installed but runtime verification is skipped.'
-fi
-
-info 'Verifying installed gaming stack'
-
-for pkg in \
-    mesa-dri \
-    vulkan-loader \
-    mesa-vulkan-intel \
-    mesa-dri-32bit \
-    vulkan-loader-32bit \
-    mesa-vulkan-intel-32bit \
-    intel-media-driver \
-    gamemode \
-    gamescope \
-    steam; do
-
-    if xbps-query -l | grep -q "^ii ${pkg}-"; then
-        ok "$pkg installed"
-    else
-        warn "$pkg is missing"
-    fi
-done
-
 echo
 echo 'Gaming setup complete.'
-echo
-echo 'Installed:'
-echo '  Intel Mesa/OpenGL + Vulkan (64-bit and 32-bit)'
-echo '  Intel VA-API'
-echo '  GameMode'
-echo '  Gamescope'
-echo '  Steam'
-echo
-echo 'Useful verification commands:'
-echo '  vulkaninfo --summary'
-echo '  gamemoded -t'
-echo '  glxinfo -B'
-echo '  steam'
 echo
 echo 'Log out and back in after the first run so group membership changes take effect.'

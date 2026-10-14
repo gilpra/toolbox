@@ -24,6 +24,7 @@ sudo xbps-install -Su
 info 'Installing system and development tools'
 
 sudo xbps-install -y \
+    base-devel \
     git \
     curl \
     ripgrep \

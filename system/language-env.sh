@@ -1,65 +1,63 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-LANG=("japanese" "korean")
+LANGUAGES=(japanese korean)
 FONT_DIR="$HOME/.local/share/fonts"
 
-echo "Language:"
-for i in ${!LANG[@]}; do
-    echo "$((i + 1)). ${LANG[i]^}"
+printf 'Language:\n'
+for i in "${!LANGUAGES[@]}"; do
+    printf '%d. %s\n' "$((i + 1))" "${LANGUAGES[$i]^}"
 done
 
-echo
-read -p "Select Language (number) : " sel
+read -r -p 'Select language (number): ' selection
+[[ "$selection" =~ ^[0-9]+$ ]] || { echo 'Input must be a number.' >&2; exit 1; }
+index=$((selection - 1))
+(( index >= 0 && index < ${#LANGUAGES[@]} )) || { echo 'Selection out of range.' >&2; exit 1; }
 
-# Check if input not number
-if ! [[ $sel =~ ^[0-9]+$ ]]; then
-    echo "Input not number"
-    exit 1
-fi
-
-# Check if input out bound
-sel=$((sel - 1))
-if ((sel < 0 || sel >= "${#LANG[@]}")); then
-    echo "Options out of reach"
-    exit 1
-fi
-
-echo "${LANG[sel]}"
-if [[ "${LANG[sel]}" == "japanese" ]]; then
-    echo "You choose Japanese"
-    FONT_FILE="NotoSansJP-VariableFont_wght.ttf"
-    LOCALES="ja_JP.UTF-8 UTF-8/ja_JP.UTF-8 UTF-8"
-
-elif [[ "${LANG[sel]}" == "korean" ]]; then
-    FONT_FILE="NotoSansKR-VariableFont_wght.ttf"
-    LOCALES="ko_KR.UTF-8 UTF-8/ko_KR.UTF-8 UTF-8"
-
-fi
+case "${LANGUAGES[$index]}" in
+    japanese)
+        font_file='NotoSansJP-VariableFont_wght.ttf'
+        locale='ja_JP.UTF-8'
+        langpack='glibc-langpack-ja'
+        ;;
+    korean)
+        font_file='NotoSansKR-VariableFont_wght.ttf'
+        locale='ko_KR.UTF-8'
+        langpack='glibc-langpack-ko'
+        ;;
+esac
 
 mkdir -p "$FONT_DIR"
-
-FONT_LOCATE="$FONT_DIR/$FONT_FILE"
-
-if [ ! -f "$FONT_LOCATE" ]; then
-    echo
-    echo "Download japanese font..."
-    curl -fL -o "$FONT_LOCATE" "https://github.com/gilpra/assets-repo/raw/main/fonts/$FONT_FILE"
+font_path="$FONT_DIR/$font_file"
+if [[ ! -f "$font_path" ]]; then
+    echo "Downloading $font_file..."
+    curl -fL --retry 3 \
+        "https://github.com/gilpra/assets-repo/raw/main/fonts/$font_file" \
+        -o "$font_path"
 else
-    echo "Font already exists, skipping download."
+    echo 'Font already exists; skipping download.'
 fi
 
-echo
-echo "Refresh font cache"
-fc-cache -fv "$FONT_DIR"
+if command -v fc-cache >/dev/null 2>&1; then
+    fc-cache -f "$FONT_DIR"
+else
+    echo 'WARNING: fc-cache not found; install fontconfig to refresh font cache.' >&2
+fi
 
-echo
-echo "Setting locales..."
-sudo sed -i "s/^# *${LOCALES}/" /etc/locale.gen
+# Fedora ships locale data separately in glibc-langpack-* packages.
+# Install the selected locale data before asking systemd-localed to use it.
+echo "Installing locale data package: $langpack ..."
+sudo dnf install -y "$langpack"
 
-echo
-echo "Generating locales..."
-sudo locale-gen
+# Confirm the selected locale is now available before changing system settings.
+if ! localectl list-locales | grep -Eiq "^${locale//./\.}$|^${locale%.*}\.(utf8|UTF-8)$"; then
+    echo "ERROR: locale $locale is still not listed after installing $langpack." >&2
+    echo 'Check the DNF output and the installed glibc-langpack package.' >&2
+    exit 1
+fi
 
-echo
-echo "Installation complete!"
+# Fedora uses localectl; unlike Arch, it does not use /etc/locale.gen + locale-gen.
+echo "Setting system locale to $locale ..."
+sudo localectl set-locale "LANG=$locale"
+
+echo 'Done. Log out and back in for the locale change to apply to your session.'

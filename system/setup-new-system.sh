@@ -1,43 +1,69 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-echo "Installing package..."
-sudo pacman -S --needed \
-    ripgrep \
-    fzf \
-    less \
-    jq \
-    inxi \
-    openssh \
-    noto-fonts \
-    noto-fonts-emoji \
-    duf \
-    lazygit \
-    neovim \
-    tree-sitter-cli \
+# Fedora 44 post-install setup. Review package availability before running.
+PACKAGES=(
+    ripgrep
+    fzf
+    less
+    jq
+    inxi
+    openssh-clients
+    google-noto-sans-fonts
+    google-noto-emoji-fonts
+    duf
+    neovim
+    tree-sitter-cli
     tmux
+)
 
-echo "Generate ssh key..."
-ssh-keygen -t ed25519
+command -v dnf >/dev/null 2>&1 || {
+    echo "ERROR: This script is intended for Fedora (dnf not found)." >&2
+    exit 1
+}
 
-echo "Setup neovim with dotfiles..."
-rm -rf ~/.config/nvim
-git clone --depth 1 https://github.com/gilpra/nvim.git ~/.config/nvim
+printf 'Installing packages from Fedora repositories...\n'
+sudo dnf install --setopt=install_weak_deps=False "${PACKAGES[@]}"
 
-echo "Install dotfiles..."
-rm -rf ~/.dotfiles
-git clone --depth 1 https://github.com/gilpra/dotfiles.git ~/.dotfiles
+printf '\nSetting up SSH key...\n'
+if [[ -e "$HOME/.ssh/id_ed25519" || -e "$HOME/.ssh/id_ed25519.pub" ]]; then
+    echo "An Ed25519 SSH key already exists; skipping key generation."
+else
+    mkdir -p "$HOME/.ssh"
+    chmod 700 "$HOME/.ssh"
+    ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519"
+fi
 
-echo "Setup folder..."
-mkdir -p ~/Games/
+printf '\nSetting up Neovim dotfiles...\n'
+if [[ -e "$HOME/.config/nvim" ]]; then
+    echo "$HOME/.config/nvim already exists; not overwriting it. Review or back it up before replacing."
+else
+    git clone --depth 1 https://github.com/gilpra/nvim.git "$HOME/.config/nvim"
+fi
 
-echo "Setup tmux..."
-curl https://gist.githubusercontent.com/gilpra/148276c20141b185097d34b268d93349/raw/f7d3f5d5c3b80d876c024af00dd3bbeb74412263/.tmux.conf -o ~/.tmux.conf
-rm -rf ~/.tmux/plugins/tpm
-git clone --depth 1 https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+printf '\nSetting up dotfiles...\n'
+if [[ -e "$HOME/.dotfiles" ]]; then
+    echo "$HOME/.dotfiles already exists; not overwriting it."
+else
+    git clone -b fedora --depth 1 https://github.com/gilpra/dotfiles.git "$HOME/.dotfiles"
+fi
 
-echo ""
-echo "==========================================================="
-echo "Your dotfiles are located in ~/.dotfiles"
-echo "To set up your dotfiles, read the README in that directory"
-echo "==========================================================="
+mkdir -p "$HOME/Games"
+
+printf '\nSetting up tmux...\n'
+if [[ ! -e "$HOME/.tmux.conf" ]]; then
+    curl -fL --retry 3 \
+        'https://gist.githubusercontent.com/gilpra/148276c20141b185097d34b268d93349/raw/f7d3f5d5c3b80d876c024af00dd3bbeb74412263/.tmux.conf' \
+        -o "$HOME/.tmux.conf"
+else
+    echo "$HOME/.tmux.conf already exists; not overwriting it."
+fi
+
+if [[ ! -d "$HOME/.tmux/plugins/tpm" ]]; then
+    mkdir -p "$HOME/.tmux/plugins"
+    git clone --depth 1 https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"
+else
+    echo 'tmux Plugin Manager already exists; skipping clone.'
+fi
+
+echo "Setup complete."

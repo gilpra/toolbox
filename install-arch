@@ -193,7 +193,7 @@ info 'Installing base system'
 pacstrap -K "$TARGET" \
     base \
     base-devel \
-    linux-zen \
+    linux \
     linux-firmware \
     intel-ucode \
     btrfs-progs \
@@ -215,7 +215,7 @@ pacstrap -K "$TARGET" \
 # fstab
 info 'Generating fstab'
 
-genfstab -U "$TARGET" > "$TARGET/etc/fstab"
+genfstab -U "$TARGET" >"$TARGET/etc/fstab"
 
 # Chroot configuration
 info 'Configuring installed system'
@@ -374,8 +374,8 @@ fi
 for file in \
     "$TARGET/boot/efi/EFI/GRUB/grubx64.efi" \
     "$TARGET/boot/grub/grub.cfg" \
-    "$TARGET/boot/vmlinuz-linux-zen" \
-    "$TARGET/boot/initramfs-linux-zen.img" \
+    "$TARGET/boot/vmlinuz-linux" \
+    "$TARGET/boot/initramfs-linux.img" \
     "$TARGET/boot/intel-ucode.img"; do
 
     if [[ -f "$file" ]]; then
